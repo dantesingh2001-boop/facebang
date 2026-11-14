@@ -381,4 +381,34 @@ now runs in three phases:
 
 Still no waits between any of them. This is as responsive as a client script
 gets: the writes are immediate on your machine, and whether the server accepts
-them is up to the game's anti-cheat. 113 checks.
+them is up to the game's anti-cheat. 116 checks.
+
+**v1.9.0** — the UI got the Fluence treatment: motion, depth and a pulse.
+
+You asked me to look at Mic Up hub scripts for inspiration. I read them, and the
+finding is that almost every one of them is a **Rayfield or Fluent clone** — same
+sidebar, same dark surfaces, same accent blue, ripple effects on press, gradient
+panels and drop shadows. So there was no hidden technique to copy, but there is a
+clear design language worth matching, and the panel now has it while staying our
+own code (no 400KB library, no marketplace model, nothing to fingerprint):
+
+- **open animation** — a `UIScale` eases the panel from 94% to full size with a
+  Quint curve, so it lands instead of appearing
+- **header sheen** — a 74px gradient highlight sweeps across the header every
+  4.2s, using a three-point `NumberSequence` so it fades in and out at the ends
+- **breathing status dot** — the halo behind the state dot pulses on a sine, so
+  the panel reads as alive rather than a static image
+- **BANG glow pulse** — the glow under the main button throbs while it is the
+  thing you are about to hit
+- **press ripples** — every action and the main button spawn a ripple that grows
+  and fades. They are aged by the frame loop, not `task.delay`, so they cannot
+  outlive the panel after unload
+- **tab transitions** — the active tab's fill, text colour and stroke now tween,
+  and the incoming page slides up 6px into place instead of snapping
+
+All of it runs in **one** `RenderStepped` loop with no closures per frame and no
+waits, so the animation layer costs nothing on the firing path. Three new checks
+cover it: the sheen exists, the open animation settles at exactly 1.0, and a
+60-frame soak runs without a single error.
+
+116 checks: 91 script, 7 bang tuning, 18 fly/invisibility/movement/perf.

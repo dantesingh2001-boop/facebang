@@ -1875,15 +1875,27 @@ end
 
 	local function showTab(name)
 		activeTab = name
-		for n, p in pairs(pages) do p.Visible = (n == name) end
+		for n, p in pairs(pages) do
+			p.Visible = (n == name)
+			if n == name then
+				-- slide the new page up into place instead of it appearing
+				p.Position = UDim2.fromOffset(0, 6)
+				TweenService:Create(p, TweenInfo.new(0.16, Enum.EasingStyle.Quint),
+					{ Position = UDim2.fromOffset(0, 0) }):Play()
+			end
+		end
 		for n, b in pairs(tabButtons) do
 			local on = (n == name)
-			b.BackgroundTransparency = on and 0 or 1
 			b.BackgroundColor3 = Theme.accent
-			b.TextColor3 = on and Theme.text or Theme.dim
 			b.Font = on and Enum.Font.GothamBold or Font
+			TweenService:Create(b, TweenInfo.new(0.16, Enum.EasingStyle.Quint), {
+				BackgroundTransparency = on and 0 or 1,
+				TextColor3 = on and Theme.text or Theme.dim,
+			}):Play()
 			local st = b:FindFirstChildOfClass("UIStroke")
-			if st then st.Transparency = on and 1 or 0.5 end
+			if st then
+				TweenService:Create(st, TweenInfo.new(0.16), { Transparency = on and 1 or 0.5 }):Play()
+			end
 		end
 	end
 
@@ -1908,6 +1920,22 @@ end
 		corner(r, 10)
 		stroke(r, Theme.hair, 1, 0.55)
 		return r
+	end
+
+	-- one-shot press ripple. Kept in a table and aged by the animation loop
+	-- instead of task.delay, so it cannot outlive the UI if the panel is torn down.
+	local ripples = {}
+	local function ripple(row)
+		local r = new("Frame", {
+			Size = UDim2.fromOffset(14, 14),
+			Position = UDim2.new(0.5, -7, 0.5, -7),
+			BackgroundColor3 = Theme.accent,
+			BackgroundTransparency = 0.55,
+			BorderSizePixel = 0,
+			ZIndex = row.ZIndex + 1,
+		}, row)
+		corner(r, 7)
+		ripples[#ripples + 1] = { frame = r, t = os.clock() }
 	end
 
 	local function mkLabel(row, text)
@@ -1983,7 +2011,10 @@ end
 			Text = "",
 		}, row)
 		rowFeedback(row)
-		btn.MouseButton1Down:Connect(function() row.BackgroundColor3 = Theme.surfacePress end)
+		btn.MouseButton1Down:Connect(function()
+			row.BackgroundColor3 = Theme.surfacePress
+			ripple(row)
+		end)
 		btn.MouseButton1Up:Connect(function() row.BackgroundColor3 = Theme.surfaceHi end)
 		btn.MouseButton1Click:Connect(function()
 			local ok, err = pcall(fn)
@@ -2069,7 +2100,7 @@ end
 	end
 
 	-- forward-declared: assigned while building the Aim tab, read by UI.state
-	local bangLabel, loopToggle
+	local bangLabel, loopToggle, bangGlow
 
 	-- destructive rows need a second tap; the armed state expires so a stray
 	-- tap never leaves something dangerous primed
@@ -2144,6 +2175,7 @@ end
 			BorderSizePixel = 0,
 		}, row)
 		corner(glow, 5)
+		bangGlow = glow
 
 		local b = new("TextButton", {
 			Size = UDim2.fromScale(1, 1),
@@ -2168,6 +2200,7 @@ end
 			TweenService:Create(scale, TweenInfo.new(0.1), { Scale = 1 }):Play()
 		end)
 		b.MouseButton1Down:Connect(function()
+			ripple(row)
 			TweenService:Create(scale, TweenInfo.new(0.08), { Scale = 0.97 }):Play()
 		end)
 		b.MouseButton1Up:Connect(function()
@@ -2539,6 +2572,71 @@ end
 		Font = Font,
 		TextSize = 9,
 	}, win)
+
+	--------------------------------------------------------------- animation
+	-- One RenderStepped loop drives every ambient animation. It never yields and
+	-- does no allocation per frame: no closures in the body, no task.wait.
+	local sheen = new("Frame", {
+		Name = "FB_Sheen",
+		Size = UDim2.new(0, 74, 0, 2),
+		Position = UDim2.new(-0.3, 0, 0, HEADER_H - 2),
+		BackgroundColor3 = Theme.accent,
+		BackgroundTransparency = 0.4,
+		BorderSizePixel = 0,
+		ZIndex = 5,
+	}, win)
+	new("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.5, 0.15),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+	}, sheen)
+
+	-- open animation: the panel eases up from slightly small, so it lands rather
+	-- than simply appearing
+	local openScale = new("UIScale", { Name = "FB_OpenScale", Scale = 0.94 }, win)
+	TweenService:Create(openScale, TweenInfo.new(0.24, Enum.EasingStyle.Quint),
+		{ Scale = 1 }):Play()
+
+	local t0 = os.clock()
+	conns[#conns + 1] = RunService.RenderStepped:Connect(function()
+		local now = os.clock() - t0
+
+		-- header sheen sweeping left to right, then a pause before it repeats
+		local cycle = (now % 4.2) / 1.1
+		if cycle <= 1 then
+			sheen.Position = UDim2.new(-0.3 + cycle * 1.6, 0, 0, HEADER_H - 2)
+			sheen.BackgroundTransparency = 0.35
+		else
+			sheen.BackgroundTransparency = 1
+		end
+
+		-- breathing halo behind the status dot
+		if dotRing then
+			dotRing.BackgroundTransparency = 0.86 - 0.12 * (0.5 + 0.5 * math.sin(now * 3.4))
+		end
+
+		-- the main button's glow pulses while it is the thing you are about to hit
+		if bangGlow then
+			bangGlow.BackgroundTransparency = 0.66 - 0.14 * (0.5 + 0.5 * math.sin(now * 2.6))
+		end
+
+		-- age out press ripples
+		for i = #ripples, 1, -1 do
+			local rec = ripples[i]
+			local age = os.clock() - rec.t
+			if age > 0.42 or not rec.frame.Parent then
+				if rec.frame.Parent then pcall(function() rec.frame:Destroy() end) end
+				table.remove(ripples, i)
+			else
+				local grow = 14 + age * 300
+				rec.frame.Size = UDim2.fromOffset(grow, grow)
+				rec.frame.Position = UDim2.new(0.5, -grow / 2, 0.5, -grow / 2)
+				rec.frame.BackgroundTransparency = 0.55 + age * 1.1
+			end
+		end
+	end)
 
 	--------------------------------------------------------------------- api
 	UI = {}

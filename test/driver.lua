@@ -410,6 +410,26 @@ Report("stop leaves no weld on the target",
 Report("stop hands the target its mass back", stoppedRoot.Massless == false)
 
 -- 28c. the engine must drive the bang in the pre-physics phase too
+-- UI polish: the animation layer must exist and survive frames without erroring
+local guiRoot = lp -- the UI is parented into the local player's PlayerGui
+local function findDeep(root, name)
+	local stack = { root }
+	while #stack > 0 do
+		local node = table.remove(stack)
+		if node.Name == name then return node end
+		for _, c in ipairs(node:GetChildren()) do stack[#stack + 1] = c end
+	end
+	return nil
+end
+Report("header sheen exists", findDeep(guiRoot, "FB_Sheen") ~= nil)
+local openScale = findDeep(guiRoot, "FB_OpenScale")
+Report("open animation settles at full scale", openScale ~= nil and openScale.Scale == 1,
+	openScale and string.format("scale=%.2f", openScale.Scale))
+local soakOk, soakErr = pcall(function()
+	for _ = 1, 60 do GAME_SERVICES.RunService.RenderStepped:Fire(1/60) end
+end)
+Report("animation loop survives a frame soak", soakOk, tostring(soakErr))
+
 local preSimConnected = GAME_SERVICES.RunService.PreSimulation.connected
 Report("engine drives the loop in the pre-physics phase",
 	preSimConnected and preSimConnected > 0, "subscribers=" .. tostring(preSimConnected))

@@ -125,6 +125,11 @@ UDim2 = {
 	fromScale = function(x, y) return { X = UDim.new(x, 0), Y = UDim.new(y, 0) } end,
 }
 TweenInfo = { new = function(...) return { ... } end }
+NumberSequenceKeypoint = { new = function(t, v) return { Time = t, Value = v } end }
+NumberSequence = { new = function(a, b)
+	if type(a) == "table" then return { Keypoints = a } end
+	return { Keypoints = { a, b } }
+end }
 
 Enum = setmetatable({}, {
 	__index = function(t, ns)
