@@ -31,8 +31,11 @@ phones and small windows, so it works on PC and mobile without two layouts.
 | --- | --- |
 | **Aim** | bang nearest, loop / auto-retarget, stop + restore, power, vertical offset, release-from-seat |
 | **Self** | god mode, noclip, fly + fly speed, walk speed, jump power, anti-void + floor Y, invisible, anti-AFK, freeze my character, restore everything |
-| **Players** | pick a player, then bang / teleport to / fling / freeze (local view) / thaw / follow / spectate |
+| **Players** | pick a player, then bang / teleport to / fling / freeze (local view) / thaw / follow / spectate, plus freeze everyone in view (capped at 12) |
 | **Server** | time of day, no fog, copy job id, rejoin, server hop, unload |
+
+Rows that reset or unload your state need a second tap ("tap again to
+confirm") and disarm themselves after 3 seconds.
 
 Desktop hotkeys: `B` bang, `L` loop, `X` stop, `RightShift` show/hide. On touch,
 tap rows and use the `-` button in the header to hide the panel.
@@ -56,8 +59,9 @@ F.Unload()
   every player in it. The classic "crash" scripts also target engine bugs that
   are patched, so they mostly do nothing today.
 - **No server-wide freeze.** A client cannot stop another client's rendering.
-  "Freeze" here locks a target's replicated position in *your* view, and
-  "freeze my character" anchors only you. Both are labelled that way in the UI.
+  What exists, and is labelled as such: freeze a target's replicated position
+  in *your* view, freeze everyone inside 80 studs (capped at 12 so a full
+  server cannot stall the frame), and anchor your own character.
 - **No anchored-target flinging.** If a game anchors characters, no client-side
   physics can move them. The script says so instead of silently failing.
 
@@ -111,8 +115,9 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-34 checks: script loads, registers itself, the hot path runs clean, the root
+40 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
-mode, local freeze) and the target actions (teleport, freeze, thaw). All pass.
+mode, local freeze) and the target actions (teleport, freeze, thaw, freeze-all
+with a radius check), plus the engine/UI loop-flag resync. All pass.

@@ -103,6 +103,33 @@ function Targets.new(ctx)
 
 	function M.isFrozen(plr) return state.frozen[plr] ~= nil end
 
+	function M.frozenCount()
+		local n = 0
+		for _ in pairs(state.frozen) do n += 1 end
+		return n
+	end
+
+	-- Freeze everyone inside a radius of the local player, capped so a 100-player
+	-- server cannot turn this into a per-frame stall. Local view only.
+	function M.freezeAll(radius, maxCount)
+		local myRoot = rootOf(LP)
+		if not myRoot then return false, "no character" end
+		local me = myRoot.CFrame.Position
+		local r = radius or 80
+		local cap = maxCount or 12
+		local n = 0
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if n >= cap then break end
+			if plr ~= LP then
+				local pr = rootOf(plr)
+				if pr and (pr.CFrame.Position - me).Magnitude <= r then
+					if M.freeze(plr) then n += 1 end
+				end
+			end
+		end
+		return true, n
+	end
+
 	function M.spectate(plr)
 		local cam = Workspace.CurrentCamera
 		local theirRoot = rootOf(plr)

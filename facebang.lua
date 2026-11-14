@@ -554,6 +554,33 @@ function Targets.new(ctx)
 
 	function M.isFrozen(plr) return state.frozen[plr] ~= nil end
 
+	function M.frozenCount()
+		local n = 0
+		for _ in pairs(state.frozen) do n += 1 end
+		return n
+	end
+
+	-- Freeze everyone inside a radius of the local player, capped so a 100-player
+	-- server cannot turn this into a per-frame stall. Local view only.
+	function M.freezeAll(radius, maxCount)
+		local myRoot = rootOf(LP)
+		if not myRoot then return false, "no character" end
+		local me = myRoot.CFrame.Position
+		local r = radius or 80
+		local cap = maxCount or 12
+		local n = 0
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if n >= cap then break end
+			if plr ~= LP then
+				local pr = rootOf(plr)
+				if pr and (pr.CFrame.Position - me).Magnitude <= r then
+					if M.freeze(plr) then n += 1 end
+				end
+			end
+		end
+		return true, n
+	end
+
 	function M.spectate(plr)
 		local cam = Workspace.CurrentCamera
 		local theirRoot = rootOf(plr)
@@ -1298,7 +1325,51 @@ end
 	end
 
 	-- forward-declared: assigned while building the Aim tab, read by UI.state
-	local bangBtn, RowBang, loopToggle, stopRow
+	local bangLabel, loopToggle
+
+	-- destructive rows need a second tap; the armed state expires so a stray
+	-- tap never leaves something dangerous primed
+	local function actionConfirm(page, order, label, fn)
+		local row = mkRow(page, order)
+		local text = mkLabel(row, label)
+		local arrow = new("TextLabel", {
+			Size = UDim2.fromOffset(18, 18),
+			Position = UDim2.new(1, -28, 0.5, -9),
+			BackgroundTransparency = 1,
+			Text = ">",
+			TextColor3 = Theme.accent,
+			Font = Enum.Font.GothamBold,
+			TextSize = 13,
+		}, row)
+		local armed, token = false, 0
+		local btn = new("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "" }, row)
+		btn.MouseButton1Click:Connect(function()
+			if not armed then
+				armed = true
+				token += 1
+				local mine = token
+				text.Text = "tap again to confirm"
+				tweenObj(row, "BackgroundColor3", Theme.bad)
+				arrow.TextColor3 = Theme.bad
+				task.delay(3, function()
+					if armed and token == mine then
+						armed = false
+						text.Text = label
+						tweenObj(row, "BackgroundColor3", Theme.row)
+						arrow.TextColor3 = Theme.accent
+					end
+				end)
+				return
+			end
+			armed = false
+			text.Text = label
+			tweenObj(row, "BackgroundColor3", Theme.row)
+			arrow.TextColor3 = Theme.accent
+			local ok, err = pcall(fn)
+			if not ok then out("error: " .. tostring(err)) end
+		end)
+		return row
+	end
 
 	------------------------------------------------------------------- Aim tab
 	local aim = pages.Aim
@@ -1315,7 +1386,7 @@ end
 		}, aim)
 		corner(row, 8)
 		local b = new("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "" }, row)
-		new("TextLabel", {
+		bangLabel = new("TextLabel", {
 			Size = UDim2.fromScale(1, 1),
 			BackgroundTransparency = 1,
 			Text = "BANG NEAREST",
@@ -1324,8 +1395,6 @@ end
 			TextSize = 13,
 		}, row)
 		b.MouseButton1Click:Connect(function() Engine.toggle() end)
-		RowBang = row
-		bangBtn = b
 	end
 
 	loopToggle = toggle(aim, 2, "loop (auto-retarget)", function(on)
@@ -1334,7 +1403,10 @@ end
 		if not on and Engine.running then Engine.stop() end
 	end, false)
 
-	stopRow = action(aim, 3, "stop + restore", function() Engine.stop() end)
+	action(aim, 3, "stop + restore", function()
+		Engine.stop()
+		loopToggle.set(false) -- Engine.stop clears loop; the pill must follow
+	end)
 
 	stepper(aim, 4, "power", { 6, 10, 12, 16, 20, 28, 36 }, function(v) Config.Power = v end, 3)
 	stepper(aim, 5, "vertical offset", { 0.1, 0.35, 0.6, 0.9 }, function(v) Config.Height = v end, 2)
@@ -1374,7 +1446,7 @@ end
 
 	toggle(selfPage, sOrder(), "freeze my character (local)", function(on) SelfTools.freezeLocal(on) end, false)
 
-	action(selfPage, sOrder(), "restore everything", function()
+	actionConfirm(selfPage, sOrder(), "restore everything", function()
 		SelfTools.restoreAll()
 		Engine.stop()
 		Targets.cleanup()
@@ -1497,7 +1569,12 @@ end
 		local p = pick() if p then Targets.spectate(p) end
 	end)
 
-	action(plPage, 9, "stop all player actions", function()
+	action(plPage, 9, "freeze all in view (local, max 12)", function()
+		local ok, n = Targets.freezeAll(80, 12)
+		if ok then out("froze " .. tostring(n) .. " in view") else out("no character") end
+	end)
+
+	action(plPage, 10, "stop all player actions", function()
 		Targets.cleanup()
 		out("player actions cleared")
 	end)
@@ -1564,7 +1641,7 @@ end
 		out("no other server available")
 	end)
 
-	action(svPage, svOrder(), "unload script", function()
+	actionConfirm(svPage, svOrder(), "unload script", function()
 		ENV.FaceBang.Unload()
 	end)
 
@@ -1589,9 +1666,10 @@ end
 
 	function UI.state(on)
 		stateDot.BackgroundColor3 = on and Theme.good or Theme.dim
-		if RowBang and RowBang:FindFirstChildOfClass("TextLabel") then
-			RowBang:FindFirstChildOfClass("TextLabel").Text = on and "BANGING" or "BANG NEAREST"
+		if bangLabel and bangLabel.Parent then
+			bangLabel.Text = on and "BANGING" or "BANG NEAREST"
 		end
+		if loopToggle then loopToggle.set(Engine.loop) end
 	end
 
 	function UI.markList() markPlayers() end

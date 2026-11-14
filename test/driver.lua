@@ -155,3 +155,24 @@ Report("thaw clears freeze", Targets.isFrozen(victim) == false)
 
 Report("cleanup runs", pcall(Targets.cleanup) == true)
 Report("restoreAll runs", pcall(Self.restoreAll) == true)
+
+-- 13. freeze-all in view
+myRoot.CFrame = CFrame.new(V3.new(0, 0, 0))
+victim.Character = mkChar(victim, V3.new(10, 0, 0))
+Targets.thaw()
+local okAll, nAll = Targets.freezeAll(80, 12)
+Report("freezeAll succeeds", okAll == true)
+Report("freezeAll froze nearby player", (nAll or 0) >= 1, "n=" .. tostring(nAll))
+Report("frozenCount matches", Targets.frozenCount() >= 1, "count=" .. Targets.frozenCount())
+
+-- far away players must not be picked up
+victim.Character = mkChar(victim, V3.new(5000, 0, 0))
+Targets.thaw()
+local okFar, nFar = Targets.freezeAll(80, 12)
+Report("freezeAll respects radius", (nFar or 0) == 0, "n=" .. tostring(nFar))
+
+-- 14. engine loop flag and UI stay in sync after stop
+API.Engine.loop = true
+API.Stop()
+Report("stop clears loop flag", API.Engine.loop == false)
+Report("UI.state resyncs after stop", pcall(API.UI.state, false) == true)
