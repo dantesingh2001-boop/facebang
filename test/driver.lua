@@ -409,6 +409,11 @@ Report("stop leaves no weld on the target",
 
 Report("stop hands the target its mass back", stoppedRoot.Massless == false)
 
+-- 28c. the engine must drive the bang in the pre-physics phase too
+local preSimConnected = GAME_SERVICES.RunService.PreSimulation.connected
+Report("engine drives the loop in the pre-physics phase",
+	preSimConnected and preSimConnected > 0, "subscribers=" .. tostring(preSimConnected))
+
 -- 29. the bang must actually be able to reach them: at 8 studs it must ramp
 --     toward the target, and only re-stage when genuinely inside
 Targets.unweld()

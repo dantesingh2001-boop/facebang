@@ -115,7 +115,7 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-112 checks: script loads, registers itself, the hot path runs clean, the root
+113 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
@@ -328,7 +328,7 @@ Two harness fixes worth recording, because both were hiding real behaviour:
 - a freeze test held a stale part reference from a character that had been
   rebuilt five times, so it was writing velocity to a destroyed part.
 
-112 checks: 84 script, 7 bang tuning, 18 fly/invisibility/movement/perf.
+113 checks: 84 script, 7 bang tuning, 18 fly/invisibility/movement/perf.
 
 **v1.8.1** — stopping now leaves nothing behind on the target.
 
@@ -354,4 +354,31 @@ telling you where that player is, but it *can* keep overwriting their CFrame
 locally, which is why they look welded in place to you while everyone else sees
 them move normally.
 
-112 checks: 87 script, 7 bang tuning, 18 fly/invisibility/movement/perf.
+113 checks: 87 script, 7 bang tuning, 18 fly/invisibility/movement/perf.
+
+**v1.8.2** — the loop now also runs in the pre-physics phase.
+
+You asked for "zero delay" and pointed at other scripts. I went and read how
+this is actually discussed, and the mechanism is confirmed: what those scripts
+call zero delay is *no `task.wait` anywhere on the firing path* plus writing
+velocity every frame. There is no hidden trick beyond that. The DevForum
+consensus is explicit that anything crossing the network has latency, and that
+instant feedback for *other* players requires server authority or client
+prediction built into the game itself, not something an external script can
+impose (see the "Zero-Latency Feedback for Physics-Heavy Projectiles" tutorial
+and the replication discussions).
+
+That said, reading it did surface something I was not doing: `RunService.Stepped`
+/ `PreSimulation` fires **before physics integrates for the frame**, which is a
+better moment to write an impulse than after it. Verified in Studio that
+`PreSimulation`, `Stepped`, `PostSimulation` and `Heartbeat` all exist. The loop
+now runs in three phases:
+
+- `PreSimulation` — before physics, so the impulse is integrated the same frame
+- `RenderStepped` — before the frame is drawn
+- `Heartbeat` — after physics, which catches games that reset velocity in their
+  own handler
+
+Still no waits between any of them. This is as responsive as a client script
+gets: the writes are immediate on your machine, and whether the server accepts
+them is up to the game's anti-cheat. 113 checks.

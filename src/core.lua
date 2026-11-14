@@ -521,5 +521,15 @@ do
 		return Engine.start(plr)
 	end
 
+	-- Three passes, each in a different phase of the frame (all verified to exist
+	-- in the live engine):
+	--   PreSimulation  - before physics integrates, so the impulse is applied the
+	--                    same frame it is written
+	--   RenderStepped  - right before the frame is drawn, so it is on screen
+	--   PostSimulation / Heartbeat - after physics, which catches games that reset
+	--                    velocity on their own Stepped handler
+	-- No task.wait between any of them: the loop is pure writes per frame.
 	RunService.RenderStepped:Connect(step)
 	RunService.Heartbeat:Connect(step)
+	local preSim = RunService.PreSimulation or RunService.Stepped
+	if preSim then preSim:Connect(step) end

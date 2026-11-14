@@ -302,6 +302,7 @@ game = { GetService = function(_, n) return GAME_SERVICES[n] end, FindService = 
 Players.PlayerAdded = signal()
 Players.PlayerRemoving = signal()
 RunService.RenderStepped = signal()
+RunService.PreSimulation = signal()
 RunService.Stepped = signal()
 RunService.Heartbeat = signal()
 UserInput.InputBegan = signal()
