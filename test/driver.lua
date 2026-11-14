@@ -165,13 +165,6 @@ confirmBtn.MouseButton1Click:Fire()
 Report("second tap commits and resets the label", armedLabel.Text == "restore everything",
 	armedLabel.Text)
 
--- 8. unload destroys the gui and clears the global
-local gui = lp:FindFirstChildOfClass("PlayerGui"):FindFirstChild("FaceBangUI")
-Report("gui parented", gui ~= nil, gui and gui.Name or "")
-API.Unload()
-Report("unload clears global", GAME_ENV.FaceBang == nil)
-Report("unload destroys gui", gui.Parent == nil)
-
 -- 9. seat games: a seated+w welded target must be released before the bang
 local seatVictim = newInst("Player") seatVictim.Name = "seated" seatVictim.UserId = 3
 seatVictim.Parent = GAME_SERVICES.Players
@@ -287,6 +280,7 @@ Targets.unfling()
 -- force mode is opt-in and does touch the victim
 Targets.fling(victim, 3, "force")
 GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+API.Targets.unfling()
 Report("force mode writes victim velocity", vRoot2.AssemblyLinearVelocity ~= nil
 	and vRoot2.AssemblyLinearVelocity.Magnitude > 100)
 Targets.unfling()

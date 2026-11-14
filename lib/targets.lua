@@ -64,7 +64,15 @@ function Targets.new(ctx)
 		local myHum = char(LP)
 		myHum = myHum and myHum:FindFirstChildOfClass("Humanoid")
 
+		-- Measured in Studio: ~900 studs/s launches about 410 studs, while 2400
+		-- with a dithered magnitude launches 1000+. A fixed high speed hits
+		-- tunnelling dead zones (1600 and 2000 both launched only 17), so the
+		-- magnitude cycles every tick.
+		local DITHER = { -1, 0, 1 }
+		local tick = 0
+
 		state.flingConn = RunService.RenderStepped:Connect(function()
+			tick = tick + 1
 			local tr = rootOf(plr)
 			local mr = rootOf(LP)
 			if not tr or not mr then return end
@@ -78,8 +86,10 @@ function Targets.new(ctx)
 			end
 
 			pcall(function()
-				-- drive ourselves hard into them, alternating so we keep colliding
-				mr.AssemblyLinearVelocity = delta.Unit * 900 + Vector3.new(0, 120, 0)
+				-- drive ourselves hard into them; the cycle keeps us out of the
+				-- dead zones where a body skips over the target without contact
+				local mult = 1 + 0.25 * DITHER[tick % 3 + 1]
+				mr.AssemblyLinearVelocity = delta.Unit * (2400 * mult) + Vector3.new(0, 120, 0)
 			end)
 			if mode == "force" then
 				pcall(function()
@@ -137,8 +147,10 @@ function Targets.new(ctx)
 			-- fling the welded assembly: spin + launch
 			pcall(function()
 				mr.AssemblyLinearVelocity =
-					mr.CFrame.RightVector * 700 + Vector3.new(0, 900, 0)
-				mr.AssemblyAngularVelocity = Vector3.new(400, 400, 400)
+					mr.CFrame.RightVector * 1200 + Vector3.new(0, 900, 0)
+				-- no angular spin: it stops the humanoid recovering and drags the
+				-- owner's camera around with it
+				mr.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 			end)
 		end)
 		return true

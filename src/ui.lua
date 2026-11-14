@@ -743,7 +743,7 @@
 		out(v == "fling" and "bang mode: fling (launches)" or "bang mode: lock (holds them still)")
 	end, 1)
 
-	stepper(aim, 9, "fling power", { 800, 1600, 2500, 4000 }, function(v) Config.FlingPower = v end, 2)
+	stepper(aim, 9, "fling power", { 1400, 2000, 2400, 3200, 4000 }, function(v) Config.FlingPower = v end, 3)
 
 	------------------------------------------------------------------ Self tab
 	local selfPage = pages.Self

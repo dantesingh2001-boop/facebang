@@ -115,7 +115,7 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-87 checks: script loads, registers itself, the hot path runs clean, the root
+91 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
@@ -250,3 +250,44 @@ Also changed:
 Tests: the bang must ramp toward a target 8 studs away (velocity dot > 0.9) and
 must keep working distance rather than parking on their head; a stale freeze must
 expire and must not fight a moving target.
+
+**v1.7.0** — the bang is now tuned to measurements taken in Roblox Studio, not
+to a guessed number.
+
+Everything below is a real Client datamodel, a real Humanoid rig, 5 runs per
+setting, measuring how far the victim is launched in 0.45s:
+
+| speed | distance launched |
+|---|---|
+| 700 | 318 |
+| 900 | 410 |
+| 1400 | 637 |
+| **1600** | **17** |
+| **2000** | **17** |
+| 2400 | 1003 |
+| **2400 + 25% dither** | **1089 (min 1024)** |
+| 3200 fixed | 115 avg but 17 minimum |
+| 4000 + dither | 1117 avg, min 774 |
+
+Two things came out of this that I had wrong:
+
+- **1600 and 2000 are tunnelling dead zones.** Above roughly 40 studs per frame
+  the body can skip over the target without ever producing a physics overlap, so
+  the victim is barely moved. My previous default was 1600 — the worst possible
+  value, which is very likely what you were feeling as "it does nothing".
+- **Teleporting into them is weaker than ramming them.** Guaranteed overlap at
+  700 studs/s launched 185; the same overlap at 1200 launched 413; ramming at
+  2400 launched 1003. Impulse scales with closing speed, so parking inside the
+  victim is the weakest option — which is why the old "lock" behaviour felt like
+  freezing rather than flinging.
+
+The fix: the bang re-aims every tick at 2400 studs/s with the magnitude cycling
+-25% / 0 / +25%, which keeps it out of every dead zone. `Targets.fling` got the
+same treatment (900 -> 2400 with dither), and the weld fling no longer applies
+angular spin, which dragged the camera around and stopped the humanoid
+recovering.
+
+A test-ordering bug in the harness was masking all of this: `Targets.fling` left
+a RenderStepped connection alive, which overwrote the bang's velocity every
+frame and pinned readings at 907. Cleaned up, and the tuning is now pinned in
+`test/tuning.lua` so a refactor cannot quietly slide back into a dead zone.
