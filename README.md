@@ -121,3 +121,13 @@ restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
 mode, local freeze) and the target actions (teleport, freeze, thaw, freeze-all
 with a radius check), plus the engine/UI loop-flag resync. All pass.
+
+## Changelog
+
+**v1.1.0** — fixed "no player detected" on executors that provide `cloneref`.
+`alive()` compared `plr.Parent ~= Players`, but `cloneref` returns a reference
+that is deliberately `~=` to the real service, so every player was rejected.
+Membership is now implied by `Players:GetPlayers()`, with a regression test that
+uses a faithful non-identical `cloneref` proxy. Also: characters without a part
+named `Head` now fall back to `HumanoidRootPart`, and the failure message says
+whether you are alone or simply have no valid target.

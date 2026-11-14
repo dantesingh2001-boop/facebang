@@ -243,6 +243,13 @@ mkChar(lp, V3.new(0, 0, 0))
 PlayerList = { lp, target }
 function Players:GetPlayers() return { lp, target } end
 
+-- Faithful cloneref: delegates like the instance but is NOT == to it, which is
+-- what real executors do. This is what broke "no player detected".
+cloneref = function(obj)
+	if type(obj) ~= "table" then return obj end
+	return setmetatable({}, { __index = function(_, k) return obj[k] end })
+end
+
 getgenv = function() return GAME_ENV end
 GAME_ENV = {}
 identifyexecutor = function() return "MockExecutor" end

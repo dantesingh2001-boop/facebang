@@ -1,6 +1,6 @@
 --[[
 ================================================================================
-  FACE BANG   v1.0.0      universal / zero-delay
+  FACE BANG   v1.1.0      universal / zero-delay
 ================================================================================
   WHAT IT IS
   Facebang abuses the "feet inside the skull" character-overlap bug: your
@@ -108,15 +108,22 @@ do
 	end
 
 	------------------------------------------------------------------- helpers
+	--[[
+	  NOTE: never compare a service by instance identity here. cloneref()
+	  intentionally returns a reference that is ~= the real service, so
+	  `plr.Parent ~= Players` is ALWAYS true on executors with cloneref and
+	  rejected every player ("no player detected"). Membership is implied by
+	  iterating Players:GetPlayers(), so the parent check is not needed.
+	]]
 	local function alive(plr)
-		if not plr or plr == LP or plr.Parent ~= Players then return false end
+		if not plr or plr == LP then return false end
 		local char = plr.Character
 		if not char or not char.Parent then return false end
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hum or hum.Health <= 0 then return false end
-		local head = char:FindFirstChild("Head")
-		local hrp = char:FindFirstChild("HumanoidRootPart")
-		return head ~= nil and hrp ~= nil
+		-- custom rigs often have no part literally named "Head"; the root is
+		-- the only part guaranteed on a humanoid character
+		return char:FindFirstChild("HumanoidRootPart") ~= nil
 	end
 
 	local function myRoot()
@@ -310,7 +317,7 @@ do
 			end
 			local char = Engine.target and Engine.target.Character
 			if not char then return end
-			Engine.head = char:FindFirstChild("Head")
+			Engine.head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
 			if not Engine.head then return end
 		end
 
@@ -367,7 +374,15 @@ do
 	function Engine.start(plr)
 		plr = plr or nearest()
 		if not plr or not alive(plr) then
-			notify("Face Bang", "No valid player")
+			local others = 0
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LP then others += 1 end
+			end
+			local why = others == 0
+				and "you are alone in this server"
+				or ("no valid target among " .. others .. " player(s) - dead, loading or no character")
+			notify("Face Bang", why, 4)
+			out(why)
 			return false
 		end
 		local hrp, hum = myRoot(), myHum()
@@ -401,8 +416,9 @@ do
 		Engine.target = plr
 		Engine.root = hrp
 		Engine.head = plr.Character:FindFirstChild("Head")
+			or plr.Character:FindFirstChild("HumanoidRootPart")
 		if not Engine.head then
-			notify("Face Bang", "Target has no Head")
+			notify("Face Bang", plr.Name .. " has no Head or root part")
 			return false
 		end
 
