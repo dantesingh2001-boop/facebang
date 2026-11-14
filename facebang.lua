@@ -232,6 +232,52 @@ do
 		end
 	end
 
+	--[[
+	  Seat games (Mic Up and friends) weld the target's root to a chair and can
+	  leave them anchored. A welded target absorbs the impulse and nothing
+	  happens, so free them locally first. Anchored targets cannot be flung at
+	  all - that is the engine, not the script - so report it instead of
+	  pretending the bang worked.
+	]]
+	local function releaseTarget(plr)
+		local char = plr and plr.Character
+		if not char then return "no character" end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hrp then return "no root" end
+
+		local freed = false
+
+		-- 1. stand them up (client-side only; their own screen may differ)
+		if hum then
+			pcall(function()
+				if hum.Sit then hum.Sit = false freed = true end
+			end)
+			pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+		end
+
+		-- 2. drop the welds that glue them to a seat
+		for _, d in ipairs(char:GetDescendants()) do
+			if d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("Motor6D") then
+				local p0, p1 = d.Part0, d.Part1
+				if p1 == hrp or p0 == hrp then
+					pcall(function()
+						d:Destroy()
+						freed = true
+					end)
+				end
+			end
+		end
+
+		-- 3. an anchored target is welded to the world: no impulse can move it.
+		--    Un-anchoring it locally does not help (the server re-anchors it), so
+		--    report the limit instead of pretending the bang will land.
+		if hrp.Anchored then return "target anchored" end
+
+		Engine.released = freed
+		return freed and "released" or "already free"
+	end
+
 	-- hot path: one physics/one render pass, no waits, no allocation beyond maths
 	local function step()
 		if not Engine.running then return end
@@ -357,6 +403,16 @@ do
 			notify("Face Bang", "Target has no Head")
 			return false
 		end
+
+		-- seat / anchor games: free the target before the impulse, and say what happened
+		local seatState = releaseTarget(plr)
+		if seatState == "target anchored" then
+			notify("Face Bang", plr.Name .. " is anchored - cannot be flung here", 4)
+			out("anchored target")
+			return false
+		end
+		if Engine.released then out("released " .. plr.Name .. " from seat") end
+
 		Engine.running = true
 		if UI and UI.state then UI.state(true) end
 		if UI and UI.markList then UI.markList() end

@@ -77,3 +77,26 @@ Report("gui parented", gui ~= nil, gui and gui.Name or "")
 API.Unload()
 Report("unload clears global", GAME_ENV.FaceBang == nil)
 Report("unload destroys gui", gui.Parent == nil)
+
+-- 9. seat games: a seated+w welded target must be released before the bang
+local seatVictim = newInst("Player") seatVictim.Name = "seated" seatVictim.UserId = 3
+seatVictim.Parent = GAME_SERVICES.Players
+seatVictim.CharacterAdded = signal()
+local sc = mkChar(seatVictim, V3.new(30, 5, 0))
+local sHum = sc:FindFirstChildOfClass("Humanoid")
+local sRoot = sc:FindFirstChild("HumanoidRootPart")
+sHum.Sit = true
+local chairWeld = newInst("Weld") chairWeld.Name = "SeatWeld" chairWeld.Part0 = sRoot
+chairWeld.Parent = sc
+table.insert(PlayerList, seatVictim)
+local okSeat = API.Bang(seatVictim)
+Report("bang works on a seated target", okSeat == true)
+Report("seat weld broken locally", chairWeld.Parent == nil)
+Report("released flag set", API.Engine.released == true)
+API.Stop()
+
+-- 10. anchored targets are refused rather than silently doing nothing
+sRoot.Anchored = true
+local okAnchor = API.Bang(seatVictim)
+Report("anchored target refused", okAnchor == false)
+sRoot.Anchored = false
