@@ -115,7 +115,7 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-109 checks: script loads, registers itself, the hot path runs clean, the root
+112 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
@@ -328,4 +328,30 @@ Two harness fixes worth recording, because both were hiding real behaviour:
 - a freeze test held a stale part reference from a character that had been
   rebuilt five times, so it was writing velocity to a destroyed part.
 
-109 checks: 84 script, 7 bang tuning, 18 fly/invisibility/movement/perf.
+112 checks: 84 script, 7 bang tuning, 18 fly/invisibility/movement/perf.
+
+**v1.8.1** — stopping now leaves nothing behind on the target.
+
+You asked whether the "target looks frozen, but only on my screen" bug was
+fixed. It was fixed in two earlier passes (a freeze expires after 8s and drops
+the moment the target's assembly is really moving; the bang passes through
+instead of parking inside them), but there was still one way to leave a target
+pinned: pressing **stop** mid-freeze or mid-weld did not clear our own local
+writes. Their CFrame pin kept being applied until it expired, and their parts
+could stay massless.
+
+That is fixed, and the bug behind it was subtle: the teardown inside
+`Engine.stop` named the `Targets` module directly, but that local is declared
+*after* that function in the build, so the name resolved to a global, `pcall`
+swallowed the error, and the cleanup silently did nothing. It now goes through
+an `Engine.onStop` hook that the UI installs once the modules exist. Three new
+checks cover it: stop clears the freeze, stop removes the weld, stop hands the
+target's mass back.
+
+To be clear about the mechanism, because it explains the symptom: every one of
+these writes exists only on your client. Your client cannot stop the server from
+telling you where that player is, but it *can* keep overwriting their CFrame
+locally, which is why they look welded in place to you while everyone else sees
+them move normally.
+
+112 checks: 87 script, 7 bang tuning, 18 fly/invisibility/movement/perf.

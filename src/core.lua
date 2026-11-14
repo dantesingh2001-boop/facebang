@@ -499,6 +499,13 @@ do
 		Engine.loop = false
 		Engine.target = nil
 		Engine.head = nil
+		-- Stopping must not leave anything of ours on their body. Every one of
+		-- these writes only exists on this client, so anything left behind shows
+		-- as the target appearing frozen or welded *on our screen only*.
+		-- Leave nothing of ours on their body. This MUST go through a hook: the
+		-- modules are built after this file, so naming them directly here would
+		-- resolve to a global and the teardown would silently do nothing.
+		if Engine.onStop then pcall(Engine.onStop) end
 		restore()
 		if UI and UI.state then UI.state(false) end
 		if UI and UI.markList then UI.markList() end

@@ -396,6 +396,19 @@ liveRoot.AssemblyLinearVelocity = V3.new(0, 0, 90)
 GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
 Report("freeze drops once the target really moves", Targets.isFrozen(victim) == false)
 
+-- 28b. stopping must not leave our local writes on their body
+Targets.freeze(victim)
+Targets.flingWeld(victim, 5)
+API.Bang(victim)
+API.Stop()
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+local stoppedRoot = victim.Character:FindFirstChild("HumanoidRootPart")
+Report("stop clears our freeze on the target", Targets.isFrozen(victim) == false)
+Report("stop leaves no weld on the target",
+	victim.Character:FindFirstChild("FB_WeldFling") == nil)
+
+Report("stop hands the target its mass back", stoppedRoot.Massless == false)
+
 -- 29. the bang must actually be able to reach them: at 8 studs it must ramp
 --     toward the target, and only re-stage when genuinely inside
 Targets.unweld()

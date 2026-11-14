@@ -38,6 +38,14 @@
 	ctx.Targets = Targets
 	ctx.SelfTools = SelfTools
 
+	-- stopping must not leave a local freeze or weld on the target's body;
+	-- this hook is what Engine.stop calls (see the note there)
+	Engine.onStop = function()
+		pcall(function() Targets.thawAll() end)
+		pcall(function() Targets.unweld() end)
+		pcall(function() Targets.unfling() end)
+	end
+
 	local function corner(obj, r)
 		local c = Instance.new("UICorner")
 		c.CornerRadius = UDim.new(0, r or 8)
