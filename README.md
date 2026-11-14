@@ -5,53 +5,72 @@ A single self-contained Lua script. No external UI library, no key system, no
 
 ```
 facebang/
-  facebang.lua      the script (drop-in, ~800 lines)
+  facebang.lua      the built, single-file deliverable (~1700 lines)
+  build.sh          concatenates src/ + lib/ into facebang.lua
+  src/core.lua      facebang engine + capability probing
+  src/ui.lua        tabbed panel, PC + touch sizing
+  src/main.lua      closes the wrapper
+  lib/targets.lua   per-player actions
+  lib/self.lua      local-player utilities
   test/mock.lua     fake Roblox API used by the smoke test
   test/driver.lua   behavioural checks
-  README.md
 ```
 
 ## Use
 
-## One-line install
-
-Paste this into any executor that has `HttpGet` (Synapse, Solara, Wave, Delta,
-Arceus X, Xeno, KRNL, Codex, Trigon, Velocity...):
+Paste the contents of `facebang.lua` into your executor and run it, or:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/dantesingh2001-boop/facebang/main/facebang.lua"))()
 ```
 
-If your executor blocks `raw.githubusercontent.com` (a few mobile ones run an
-HTTP allowlist), use the same file through jsDelivr instead:
+A tabbed panel opens. It scales itself down and clamps into the safe area on
+phones and small windows, so it works on PC and mobile without two layouts.
 
-```lua
-loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/dantesingh2001-boop/facebang@main/facebang.lua"))()
-```
-
-The URL always serves the newest `main`. Re-run it after any update; there is
-no version pinning to remember.
-
-GUI appears top-left. Keys:
-
-| key | action |
+| tab | what is in it |
 | --- | --- |
-| `B` | bang the nearest player (again to stop) |
-| `L` | loop mode: auto-retarget the closest living player |
-| `X` | stop and restore your character |
-| `RightShift` | show / hide the panel |
+| **Aim** | bang nearest, loop / auto-retarget, stop + restore, power, vertical offset, release-from-seat |
+| **Self** | god mode, noclip, fly + fly speed, walk speed, jump power, anti-void + floor Y, invisible, anti-AFK, freeze my character, restore everything |
+| **Players** | pick a player, then bang / teleport to / fling / freeze (local view) / thaw / follow / spectate |
+| **Server** | time of day, no fog, copy job id, rejoin, server hop, unload |
 
-Pick a specific target by clicking a name in the **TARGET** list first.
+Desktop hotkeys: `B` bang, `L` loop, `X` stop, `RightShift` show/hide. On touch,
+tap rows and use the `-` button in the header to hide the panel.
 
-API (from the console or another script):
+API:
 
 ```lua
-getgenv().FaceBang.Bang(game.Players:FindFirstChild("Name"))  -- or Bang() for nearest
-getgenv().FaceBang.Stop()
-getgenv().FaceBang.Config.Power = 20
-getgenv().FaceBang.Capabilities  -- what this executor actually exposed
-getgenv().FaceBang.Unload()
+local F = getgenv().FaceBang
+F.Bang()                      -- nearest, or F.Bang(player)
+F.Stop()
+F.Config.Power = 20
+F.Self.godMode(true)
+F.Targets.teleportTo(game.Players:FindFirstChild("Name"))
+F.Capabilities                -- what this executor actually exposed
+F.Unload()
 ```
+
+## What this deliberately does not do
+
+- **No game-crash payloads.** Crashing a server is a denial-of-service against
+  every player in it. The classic "crash" scripts also target engine bugs that
+  are patched, so they mostly do nothing today.
+- **No server-wide freeze.** A client cannot stop another client's rendering.
+  "Freeze" here locks a target's replicated position in *your* view, and
+  "freeze my character" anchors only you. Both are labelled that way in the UI.
+- **No anchored-target flinging.** If a game anchors characters, no client-side
+  physics can move them. The script says so instead of silently failing.
+
+## Seat games (Mic Up and similar)
+
+Voice/seat games were the main place facebang silently did nothing, for three
+reasons, all handled now:
+
+1. A seated target's root is welded to a chair, so the impulse went into the
+   chair. The script sets `Sit = false` and drops the root's weld before
+   banging. This is client-side; their own screen may still show them seated.
+2. The humanoid is in the `Seated` state; it is pushed to `GettingUp` first.
+3. Anchored characters are refused with a message rather than a quiet no-op.
 
 ## How it works
 
@@ -87,11 +106,13 @@ already locked on the head still carries momentum instead of collapsing to ~0.
 ## Verifying it
 
 ```bash
+bash build.sh
 cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-16 checks: script loads, registers itself, the hot path runs clean, the root
+34 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
-destroys the GUI. All pass.
+destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
+mode, local freeze) and the target actions (teleport, freeze, thaw). All pass.

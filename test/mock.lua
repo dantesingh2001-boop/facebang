@@ -31,6 +31,10 @@ function V3.new(x, y, z)
 		__index = function(t, k)
 			local r = rawget(t, "_v")[k]
 			if r ~= nil then return r end
+			-- Roblox exposes X/Y/Z as well as x/y/z
+			if k == "X" then return rawget(t, "_v").x end
+			if k == "Y" then return rawget(t, "_v").y end
+			if k == "Z" then return rawget(t, "_v").z end
 			if k == "Magnitude" then
 				local v = rawget(t, "_v")
 				return math.sqrt(v.x ^ 2 + v.y ^ 2 + v.z ^ 2)
@@ -82,6 +86,7 @@ UDim = { new = function(s, o) return { Scale = s, Offset = o } end }
 UDim2 = {
 	new = function(a, b, c, d) return { X = UDim.new(a, b), Y = UDim.new(c, d) } end,
 	fromOffset = function(x, y) return { X = UDim.new(0, x), Y = UDim.new(0, y) } end,
+	fromScale = function(x, y) return { X = UDim.new(x, 0), Y = UDim.new(y, 0) } end,
 }
 TweenInfo = { new = function(...) return { ... } end }
 
@@ -118,6 +123,11 @@ Inst.__index = function(t, k)
 	if m then return m end
 	-- Roblox lets you index a child by name
 	if k == "Children" or k == "Parent" then return nil end
+	if k == "Position" then
+		local cf = rawget(t, "_p").CFrame
+		if cf then return cf.Position end
+		return nil
+	end
 	local c = Inst.FindFirstChild(t, k)
 	if c then return c end
 	return nil
@@ -202,6 +212,7 @@ game = { GetService = function(_, n) return GAME_SERVICES[n] end, FindService = 
 Players.PlayerAdded = signal()
 Players.PlayerRemoving = signal()
 RunService.RenderStepped = signal()
+RunService.Stepped = signal()
 RunService.Heartbeat = signal()
 UserInput.InputBegan = signal()
 UserInput.InputChanged = signal()

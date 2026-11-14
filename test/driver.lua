@@ -100,3 +100,58 @@ sRoot.Anchored = true
 local okAnchor = API.Bang(seatVictim)
 Report("anchored target refused", okAnchor == false)
 sRoot.Anchored = false
+
+-- 11. self tools
+local Self = API.Self
+local Targets = API.Targets
+Report("Self module exposed", type(Self) == "table")
+Report("Targets module exposed", type(Targets) == "table")
+
+local myHum = lp.Character:FindFirstChildOfClass("Humanoid")
+Self.setSpeed(80)
+Report("walk speed set", myHum.WalkSpeed == 80, "ws=" .. tostring(myHum.WalkSpeed))
+Self.setJump(150)
+Report("jump power set", myHum.JumpPower == 150)
+
+Self.noclip(true)
+GAME_SERVICES.RunService.Stepped:Fire(1/60)
+local colliding = 0
+for _, d in ipairs(lp.Character:GetDescendants()) do
+	if d:IsA("BasePart") and d.CanCollide then colliding += 1 end
+end
+Report("noclip disables collisions", colliding == 0, "colliding=" .. colliding)
+Self.unnoclip()
+
+Self.startAntiVoid(-80)
+myRoot.CFrame = CFrame.new(V3.new(0, -200, 0))
+GAME_SERVICES.RunService.Heartbeat:Fire(1/60)
+Report("anti void re-surfaces the character", myRoot.CFrame.Position.Y > -80,
+	"y=" .. myRoot.CFrame.Position.Y)
+Self.stopAntiVoid()
+
+Self.godMode(true)
+myHum.Health = 1
+GAME_SERVICES.RunService.Heartbeat:Fire(1/60)
+Report("god mode restores health", myHum.Health == myHum.MaxHealth, "hp=" .. tostring(myHum.Health))
+Self.godMode(false)
+
+Self.freezeLocal(true)
+Report("local freeze anchors", myRoot.Anchored == true)
+Self.freezeLocal(false)
+Report("local freeze releases", myRoot.Anchored == false)
+
+-- 12. target actions
+victim.Character = mkChar(victim, V3.new(20, 0, 0))
+local vRoot = victim.Character:FindFirstChild("HumanoidRootPart")
+local okT = Targets.teleportTo(victim)
+Report("teleport to target", okT == true and (myRoot.CFrame.Position - vRoot.CFrame.Position).Magnitude < 5,
+	("d=%.2f"):format((myRoot.CFrame.Position - vRoot.CFrame.Position).Magnitude))
+
+Targets.freeze(victim)
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+Report("freeze target captured", Targets.isFrozen(victim) == true)
+Targets.thaw(victim)
+Report("thaw clears freeze", Targets.isFrozen(victim) == false)
+
+Report("cleanup runs", pcall(Targets.cleanup) == true)
+Report("restoreAll runs", pcall(Self.restoreAll) == true)
