@@ -1,6 +1,6 @@
 --[[
 ================================================================================
-  FACE BANG   v1.1.0      universal / zero-delay
+  FACE BANG   v1.6.0      universal / zero-delay
 ================================================================================
   WHAT IT IS
   Facebang abuses the "feet inside the skull" character-overlap bug: your
@@ -32,6 +32,9 @@
 ]]
 
 do
+	-- single source of truth: the UI header prints this, so it must not drift
+	local VERSION = "1.6.0"
+
 	local ENV = (getgenv and getgenv()) or _G
 	if type(ENV.FaceBang) == "table" and type(ENV.FaceBang.Unload) == "function" then
 		pcall(ENV.FaceBang.Unload)
