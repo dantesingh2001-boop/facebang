@@ -13,12 +13,24 @@ facebang/
 
 ## Use
 
-Paste the contents of `facebang.lua` into your executor and run it. Or host it
-and use a one-liner:
+## One-line install
+
+Paste this into any executor that has `HttpGet` (Synapse, Solara, Wave, Delta,
+Arceus X, Xeno, KRNL, Codex, Trigon, Velocity...):
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/<you>/<repo>/main/facebang.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/dantesingh2001-boop/facebang/main/facebang.lua"))()
 ```
+
+If your executor blocks `raw.githubusercontent.com` (a few mobile ones run an
+HTTP allowlist), use the same file through jsDelivr instead:
+
+```lua
+loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/dantesingh2001-boop/facebang@main/facebang.lua"))()
+```
+
+The URL always serves the newest `main`. Re-run it after any update; there is
+no version pinning to remember.
 
 GUI appears top-left. Keys:
 
