@@ -176,3 +176,50 @@ API.Engine.loop = true
 API.Stop()
 Report("stop clears loop flag", API.Engine.loop == false)
 Report("UI.state resyncs after stop", pcall(API.UI.state, false) == true)
+
+-- 15. fling must drive OUR owned body, never the victim's (that never works)
+victim.Character = mkChar(victim, V3.new(6, 0, 0))
+local vRoot2 = victim.Character:FindFirstChild("HumanoidRootPart")
+myRoot.CFrame = CFrame.new(V3.new(0, 0, 0))
+myRoot.AssemblyLinearVelocity = Vector3.zero
+Targets.fling(victim, 3, "self")
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+Report("fling drives our own body", myRoot.AssemblyLinearVelocity.Magnitude > 300,
+	"|v|=" .. tostring(myRoot.AssemblyLinearVelocity.Magnitude))
+Report("fling leaves victim velocity alone", vRoot2.AssemblyLinearVelocity == nil
+	or vRoot2.AssemblyLinearVelocity.Magnitude == 0)
+Targets.unfling()
+
+-- force mode is opt-in and does touch the victim
+Targets.fling(victim, 3, "force")
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+Report("force mode writes victim velocity", vRoot2.AssemblyLinearVelocity ~= nil
+	and vRoot2.AssemblyLinearVelocity.Magnitude > 100)
+Targets.unfling()
+
+-- 16. god mode survives a direct health drop (server-authoritative games aside)
+Self.godMode(true)
+myHum.Health = 1
+myHum.HealthChanged:Fire(1)
+Report("god mode re-pins on HealthChanged", myHum.Health == myHum.MaxHealth,
+	"hp=" .. tostring(myHum.Health) .. " max=" .. tostring(myHum.MaxHealth))
+Report("god health is finite", myHum.MaxHealth < math.huge and myHum.MaxHealth >= 1e6,
+	"max=" .. tostring(myHum.MaxHealth))
+Self.godMode(false)
+Report("god mode off stops pinning", Self.isGod() == false)
+
+-- 17. bang style: velocity mode must not teleport
+local Cfg = API.Config
+Cfg.BangStyle = "velocity"
+myRoot.CFrame = CFrame.new(V3.new(0, 0, 0))
+API.Engine.tick = 0
+API.Bang(victim)
+local before = myRoot.CFrame.Position
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+Report("velocity style does not teleport",
+	(myRoot.CFrame.Position - before).Magnitude < 0.01,
+	("moved=%.3f"):format((myRoot.CFrame.Position - before).Magnitude))
+Report("velocity style still applies speed", myRoot.AssemblyLinearVelocity.Magnitude > 300,
+	"|v|=" .. tostring(myRoot.AssemblyLinearVelocity.Magnitude))
+API.Stop()
+Cfg.BangStyle = "hybrid"

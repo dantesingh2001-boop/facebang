@@ -82,6 +82,11 @@ do
 		NoClip = true,       -- turn our own collisions off so we never stick
 		AutoRetarget = true, -- jump to the next closest player when one dies
 		SeatRelease = true,  -- free a seated/welded target before the bang
+		-- "hybrid" writes CFrame + velocity (best on most games)
+		-- "velocity" never writes CFrame: for games that reset/reset-detect teleports
+		-- "cframe" only teleports: for games that ignore client velocity
+		BangStyle = "hybrid",
+		GodHealth = 1e9,     -- finite on purpose: math.huge gets reset by servers
 		VoidFloor = -80,     -- anti-void: re-surface below this Y
 		Restore = true,      -- restore position / state / collisions on stop
 		KeyBang = Enum.KeyCode.B,
@@ -326,13 +331,25 @@ do
 		local from = hrp.CFrame.Position
 		local dest = head.CFrame * CFrame.new(jitter, Config.Height, 0)
 
-		-- the teleport is what causes the overlap; the impulse carries momentum into it
-		hrp.CFrame = dest
-
+		local style = Config.BangStyle
 		local dx = dest.Position - from
-		local speed = math.clamp(dx.Magnitude * Config.Power, Config.MinSpeed, Config.MinSpeed * 5)
 		local dir = dx.Magnitude > 1e-4 and dx.Unit or Vector3.new(jitter, Config.Height, 0).Unit
-		setVel(hrp, dir * speed)
+
+		if style ~= "velocity" then
+			-- overlap bug: this is what causes the collision
+			hrp.CFrame = dest
+		end
+
+		if style == "velocity" then
+			-- no teleport: fly ourselves at the target hard enough that the
+			-- server resolves the collision on the next step
+			local toHead = head.CFrame.Position - from
+			local aim = toHead.Magnitude > 1e-4 and toHead.Unit or dir
+			setVel(hrp, aim * Config.MinSpeed * 8)
+		else
+			local speed = math.clamp(dx.Magnitude * Config.Power, Config.MinSpeed, Config.MinSpeed * 5)
+			setVel(hrp, dir * speed)
+		end
 
 		-- if the game owns our parts on the server we cannot hit anything
 		if Engine.tick % 60 == 0 then

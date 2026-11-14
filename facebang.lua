@@ -82,6 +82,11 @@ do
 		NoClip = true,       -- turn our own collisions off so we never stick
 		AutoRetarget = true, -- jump to the next closest player when one dies
 		SeatRelease = true,  -- free a seated/welded target before the bang
+		-- "hybrid" writes CFrame + velocity (best on most games)
+		-- "velocity" never writes CFrame: for games that reset/reset-detect teleports
+		-- "cframe" only teleports: for games that ignore client velocity
+		BangStyle = "hybrid",
+		GodHealth = 1e9,     -- finite on purpose: math.huge gets reset by servers
 		VoidFloor = -80,     -- anti-void: re-surface below this Y
 		Restore = true,      -- restore position / state / collisions on stop
 		KeyBang = Enum.KeyCode.B,
@@ -326,13 +331,25 @@ do
 		local from = hrp.CFrame.Position
 		local dest = head.CFrame * CFrame.new(jitter, Config.Height, 0)
 
-		-- the teleport is what causes the overlap; the impulse carries momentum into it
-		hrp.CFrame = dest
-
+		local style = Config.BangStyle
 		local dx = dest.Position - from
-		local speed = math.clamp(dx.Magnitude * Config.Power, Config.MinSpeed, Config.MinSpeed * 5)
 		local dir = dx.Magnitude > 1e-4 and dx.Unit or Vector3.new(jitter, Config.Height, 0).Unit
-		setVel(hrp, dir * speed)
+
+		if style ~= "velocity" then
+			-- overlap bug: this is what causes the collision
+			hrp.CFrame = dest
+		end
+
+		if style == "velocity" then
+			-- no teleport: fly ourselves at the target hard enough that the
+			-- server resolves the collision on the next step
+			local toHead = head.CFrame.Position - from
+			local aim = toHead.Magnitude > 1e-4 and toHead.Unit or dir
+			setVel(hrp, aim * Config.MinSpeed * 8)
+		else
+			local speed = math.clamp(dx.Magnitude * Config.Power, Config.MinSpeed, Config.MinSpeed * 5)
+			setVel(hrp, dir * speed)
+		end
 
 		-- if the game owns our parts on the server we cannot hit anything
 		if Engine.tick % 60 == 0 then
@@ -509,24 +526,51 @@ function Targets.new(ctx)
 		return true
 	end
 
-	function M.fling(plr, seconds)
+	--[[
+	  Universal fling. Writing velocity to the VICTIM's part never works: the
+	  client does not own a remote player's parts, so the server overwrites it on
+	  the next physics step. What does work is the facebang trick - our own
+	  assembly IS owned by us, so driving ourselves into them at speed makes the
+	  SERVER resolve the collision and launch them.
+
+	  mode "self"  : accelerate our own root through the target (default, works)
+	  mode "force" : also write their velocity, for the rare case where we do own
+	                 their parts (co-op physics games, sit games)
+	]]
+	function M.fling(plr, seconds, mode)
 		local theirRoot = rootOf(plr)
+		local myRoot = rootOf(LP)
 		if not theirRoot then return false, "no character" end
+		if not myRoot then return false, "no character" end
+
 		M.unfling()
-		local t0 = os.clock()
-		local cancelled = false
+		local until_ = os.clock() + (seconds or 3)
+		local myHum = char(LP)
+		myHum = myHum and myHum:FindFirstChildOfClass("Humanoid")
+
 		state.flingConn = RunService.RenderStepped:Connect(function()
-			if cancelled or not theirRoot.Parent then return end
-			if os.clock() - t0 > (seconds or 4) then
-				M.unfling()
-				return
+			local tr = rootOf(plr)
+			local mr = rootOf(LP)
+			if not tr or not mr then return end
+			if os.clock() > until_ then M.unfling() return end
+
+			local target = tr.CFrame.Position
+			local from = mr.CFrame.Position
+			local delta = target - from
+			if delta.Magnitude < 0.01 then
+				delta = tr.CFrame.LookVector * -1
 			end
+
 			pcall(function()
-				theirRoot.AssemblyLinearVelocity = Vector3.new(0, 1e6, 0)
+				-- drive ourselves hard into them, alternating so we keep colliding
+				mr.AssemblyLinearVelocity = delta.Unit * 900 + Vector3.new(0, 120, 0)
 			end)
+			if mode == "force" then
+				pcall(function()
+					tr.AssemblyLinearVelocity = Vector3.new(0, 1200, 0)
+				end)
+			end
 		end)
-		local function stop() cancelled = true end
-		task.delay(seconds or 4, stop)
 		return true
 	end
 
@@ -744,37 +788,57 @@ function Self.new(ctx)
 	-- A client can only make itself *look* alive: keep health pinned and respawn
 	-- suppressed. The server still decides real damage, so this survives fall
 	-- damage and most client-side sources, not server-side kills.
+	--[[
+	  Client god mode, honestly scoped. Health is server-authoritative in most
+	  games, so this cannot stop a server-side kill. What it CAN do, and now
+	  does, is survive everything that routes through the humanoid on our client:
+	  fall damage, void death, scripted damage that lands locally.
+
+	  Fixes over the first version:
+	  - finite MaxHealth: math.huge is often rejected or reset by the server
+	  - health is re-pinned from the HealthChanged signal, not just one timer
+	  - re-applied after respawn
+	]]
 	function M.godMode(on)
+		s.god = on and true or false
 		if not on then
-			s.god = false
+			s.pinning = false
 			return
 		end
-		s.god = true
-		local h = hum()
-		if h then
-			s.orig.maxHealth = h.MaxHealth
-			pcall(function() h.MaxHealth = math.huge end)
-			pcall(function() h.Health = math.huge end)
+		if s.godConn then pcall(function() s.godConn:Disconnect() end) s.godConn = nil end
+
+		local function apply()
+			local h = hum()
+			if not h then return end
+			local max = ctx.Config and ctx.Config.GodHealth or 1e9
+			if h.MaxHealth ~= max then
+				pcall(function() h.MaxHealth = max end)
+			end
+			if h.Health < max then
+				pcall(function() h.Health = max end)
+			end
 		end
+
+		apply()
+		-- re-pin whenever anything lowers it; the guard stops our own write
+		-- from recursing through HealthChanged
+		s.godConn = track(hum() and hum().HealthChanged:Connect(function(v)
+			if not s.god or s.pinning then return end
+			local max = ctx.Config and ctx.Config.GodHealth or 1e9
+			if v < max then
+				s.pinning = true
+				pcall(function() hum().Health = max end)
+				s.pinning = false
+			end
+		end) or { Disconnect = function() end })
+
+		-- belt and braces: a cheap heartbeat re-pin catches respawns
 		track(RunService.Heartbeat:Connect(function()
 			if not s.god then return end
-			local c, hh = char(), hum()
-			if not c then return end
-			if hh then
-				if hh.Health < hh.MaxHealth then
-					pcall(function() hh.Health = hh.MaxHealth end)
-				end
-				if hh.MaxHealth < 1e9 then
-					pcall(function() hh.MaxHealth = math.huge end)
-				end
-			end
-			-- fall damage / void death still routes through the humanoid, so
-			-- also pin every part's health-bearing state
-			for _, p in ipairs(c:GetDescendants()) do
-				if p:IsA("BasePart") and p.Parent then
-					pcall(function() p.CanCollide = p == root() and false or p.CanCollide end)
-				end
-			end
+			local h = hum()
+			if not h then return end
+			local max = ctx.Config and ctx.Config.GodHealth or 1e9
+			if h.MaxHealth ~= max or h.Health < max then apply() end
 		end))
 	end
 
@@ -915,6 +979,10 @@ function Self.new(ctx)
 	end
 
 	function M.isFrozen() return s.frozen end
+
+	function M.onCharacterAdded()
+		if s.god then M.godMode(true) end
+	end
 
 	function M.restoreAll()
 		untrackAll()
@@ -1429,6 +1497,11 @@ end
 
 	toggle(aim, 6, "release from seat first", function(on) Config.SeatRelease = on end, true)
 
+	stepper(aim, 7, "bang style", { "hybrid", "velocity", "cframe" }, function(v)
+		Config.BangStyle = v
+		out("bang style: " .. v)
+	end, 1)
+
 	------------------------------------------------------------------ Self tab
 	local selfPage = pages.Self
 	local so = 0
@@ -1565,32 +1638,42 @@ end
 		local p = pick() if p then Targets.teleportTo(p) end
 	end)
 
-	action(plPage, 4, "fling selected", function()
-		local p = pick() if p then Targets.fling(p, 4) end
+	action(plPage, 4, "fling selected (self-body)", function()
+		local p = pick()
+		if not p then return end
+		local ok, err = Targets.fling(p, 3, "self")
+		if not ok and err then out(err) else out("flinging " .. p.Name) end
 	end)
 
-	action(plPage, 5, "freeze selected (local view)", function()
+	action(plPage, 5, "fling selected (force velocity)", function()
+		local p = pick()
+		if not p then return end
+		local ok, err = Targets.fling(p, 3, "force")
+		if not ok and err then out(err) else out("flinging " .. p.Name) end
+	end)
+
+	action(plPage, 6, "freeze selected (local view)", function()
 		local p = pick() if p then Targets.freeze(p) end
 	end)
 
-	action(plPage, 6, "thaw selected", function()
+	action(plPage, 7, "thaw selected", function()
 		local p = pick() if p then Targets.thaw(p) end
 	end)
 
-	action(plPage, 7, "follow selected", function()
+	action(plPage, 8, "follow selected", function()
 		local p = pick() if p then Targets.follow(p) end
 	end)
 
-	action(plPage, 8, "spectate selected", function()
+	action(plPage, 9, "spectate selected", function()
 		local p = pick() if p then Targets.spectate(p) end
 	end)
 
-	action(plPage, 9, "freeze all in view (local, max 12)", function()
+	action(plPage, 10, "freeze all in view (local, max 12)", function()
 		local ok, n = Targets.freezeAll(80, 12)
 		if ok then out("froze " .. tostring(n) .. " in view") else out("no character") end
 	end)
 
-	action(plPage, 10, "stop all player actions", function()
+	action(plPage, 11, "stop all player actions", function()
 		Targets.cleanup()
 		out("player actions cleared")
 	end)
@@ -1724,6 +1807,7 @@ end
 		Engine.running = false
 		Engine.root, Engine.head = nil, nil
 		UI.state(false)
+		task.delay(0.6, function() SelfTools.onCharacterAdded() end)
 		task.delay(1.5, function()
 			if Engine.loop then Engine.start() end
 		end)

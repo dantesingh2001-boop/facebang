@@ -72,37 +72,57 @@ function Self.new(ctx)
 	-- A client can only make itself *look* alive: keep health pinned and respawn
 	-- suppressed. The server still decides real damage, so this survives fall
 	-- damage and most client-side sources, not server-side kills.
+	--[[
+	  Client god mode, honestly scoped. Health is server-authoritative in most
+	  games, so this cannot stop a server-side kill. What it CAN do, and now
+	  does, is survive everything that routes through the humanoid on our client:
+	  fall damage, void death, scripted damage that lands locally.
+
+	  Fixes over the first version:
+	  - finite MaxHealth: math.huge is often rejected or reset by the server
+	  - health is re-pinned from the HealthChanged signal, not just one timer
+	  - re-applied after respawn
+	]]
 	function M.godMode(on)
+		s.god = on and true or false
 		if not on then
-			s.god = false
+			s.pinning = false
 			return
 		end
-		s.god = true
-		local h = hum()
-		if h then
-			s.orig.maxHealth = h.MaxHealth
-			pcall(function() h.MaxHealth = math.huge end)
-			pcall(function() h.Health = math.huge end)
+		if s.godConn then pcall(function() s.godConn:Disconnect() end) s.godConn = nil end
+
+		local function apply()
+			local h = hum()
+			if not h then return end
+			local max = ctx.Config and ctx.Config.GodHealth or 1e9
+			if h.MaxHealth ~= max then
+				pcall(function() h.MaxHealth = max end)
+			end
+			if h.Health < max then
+				pcall(function() h.Health = max end)
+			end
 		end
+
+		apply()
+		-- re-pin whenever anything lowers it; the guard stops our own write
+		-- from recursing through HealthChanged
+		s.godConn = track(hum() and hum().HealthChanged:Connect(function(v)
+			if not s.god or s.pinning then return end
+			local max = ctx.Config and ctx.Config.GodHealth or 1e9
+			if v < max then
+				s.pinning = true
+				pcall(function() hum().Health = max end)
+				s.pinning = false
+			end
+		end) or { Disconnect = function() end })
+
+		-- belt and braces: a cheap heartbeat re-pin catches respawns
 		track(RunService.Heartbeat:Connect(function()
 			if not s.god then return end
-			local c, hh = char(), hum()
-			if not c then return end
-			if hh then
-				if hh.Health < hh.MaxHealth then
-					pcall(function() hh.Health = hh.MaxHealth end)
-				end
-				if hh.MaxHealth < 1e9 then
-					pcall(function() hh.MaxHealth = math.huge end)
-				end
-			end
-			-- fall damage / void death still routes through the humanoid, so
-			-- also pin every part's health-bearing state
-			for _, p in ipairs(c:GetDescendants()) do
-				if p:IsA("BasePart") and p.Parent then
-					pcall(function() p.CanCollide = p == root() and false or p.CanCollide end)
-				end
-			end
+			local h = hum()
+			if not h then return end
+			local max = ctx.Config and ctx.Config.GodHealth or 1e9
+			if h.MaxHealth ~= max or h.Health < max then apply() end
 		end))
 	end
 
@@ -243,6 +263,10 @@ function Self.new(ctx)
 	end
 
 	function M.isFrozen() return s.frozen end
+
+	function M.onCharacterAdded()
+		if s.god then M.godMode(true) end
+	end
 
 	function M.restoreAll()
 		untrackAll()

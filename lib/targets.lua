@@ -42,24 +42,51 @@ function Targets.new(ctx)
 		return true
 	end
 
-	function M.fling(plr, seconds)
+	--[[
+	  Universal fling. Writing velocity to the VICTIM's part never works: the
+	  client does not own a remote player's parts, so the server overwrites it on
+	  the next physics step. What does work is the facebang trick - our own
+	  assembly IS owned by us, so driving ourselves into them at speed makes the
+	  SERVER resolve the collision and launch them.
+
+	  mode "self"  : accelerate our own root through the target (default, works)
+	  mode "force" : also write their velocity, for the rare case where we do own
+	                 their parts (co-op physics games, sit games)
+	]]
+	function M.fling(plr, seconds, mode)
 		local theirRoot = rootOf(plr)
+		local myRoot = rootOf(LP)
 		if not theirRoot then return false, "no character" end
+		if not myRoot then return false, "no character" end
+
 		M.unfling()
-		local t0 = os.clock()
-		local cancelled = false
+		local until_ = os.clock() + (seconds or 3)
+		local myHum = char(LP)
+		myHum = myHum and myHum:FindFirstChildOfClass("Humanoid")
+
 		state.flingConn = RunService.RenderStepped:Connect(function()
-			if cancelled or not theirRoot.Parent then return end
-			if os.clock() - t0 > (seconds or 4) then
-				M.unfling()
-				return
+			local tr = rootOf(plr)
+			local mr = rootOf(LP)
+			if not tr or not mr then return end
+			if os.clock() > until_ then M.unfling() return end
+
+			local target = tr.CFrame.Position
+			local from = mr.CFrame.Position
+			local delta = target - from
+			if delta.Magnitude < 0.01 then
+				delta = tr.CFrame.LookVector * -1
 			end
+
 			pcall(function()
-				theirRoot.AssemblyLinearVelocity = Vector3.new(0, 1e6, 0)
+				-- drive ourselves hard into them, alternating so we keep colliding
+				mr.AssemblyLinearVelocity = delta.Unit * 900 + Vector3.new(0, 120, 0)
 			end)
+			if mode == "force" then
+				pcall(function()
+					tr.AssemblyLinearVelocity = Vector3.new(0, 1200, 0)
+				end)
+			end
 		end)
-		local function stop() cancelled = true end
-		task.delay(seconds or 4, stop)
 		return true
 	end
 

@@ -29,9 +29,9 @@ phones and small windows, so it works on PC and mobile without two layouts.
 
 | tab | what is in it |
 | --- | --- |
-| **Aim** | bang nearest, loop / auto-retarget, stop + restore, power, vertical offset, release-from-seat |
+| **Aim** | bang nearest, loop / auto-retarget, stop + restore, power, vertical offset, release-from-seat, **bang style** (hybrid / velocity / cframe) |
 | **Self** | god mode, noclip, fly + fly speed, walk speed, jump power, anti-void + floor Y, invisible, anti-AFK, freeze my character, restore everything |
-| **Players** | pick a player, then bang / teleport to / fling / freeze (local view) / thaw / follow / spectate, plus freeze everyone in view (capped at 12) |
+| **Players** | pick a player, then bang / teleport to / fling (self-body or force) / freeze (local view) / thaw / follow / spectate, plus freeze everyone in view (capped at 12) |
 | **Server** | time of day, no fog, copy job id, rejoin, server hop, unload |
 
 Rows that reset or unload your state need a second tap ("tap again to
@@ -115,12 +115,14 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-40 checks: script loads, registers itself, the hot path runs clean, the root
+48 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
 mode, local freeze) and the target actions (teleport, freeze, thaw, freeze-all
-with a radius check), plus the engine/UI loop-flag resync. All pass.
+with a radius check), the engine/UI loop-flag resync, fling driving our own
+body while leaving the victim untouched, god-mode re-pinning, and velocity-mode
+not teleporting. All pass.
 
 ## Changelog
 
@@ -131,3 +133,24 @@ Membership is now implied by `Players:GetPlayers()`, with a regression test that
 uses a faithful non-identical `cloneref` proxy. Also: characters without a part
 named `Head` now fall back to `HumanoidRootPart`, and the failure message says
 whether you are alone or simply have no valid target.
+
+**v1.2.0** — made fling and god mode actually work, and added bang styles.
+
+- **Fling was structurally broken.** It wrote `AssemblyLinearVelocity` to the
+  *victim's* root, but a client does not own a remote player's parts, so the
+  server overwrote that write on the next physics step. It could never work.
+  Fling now drives **your own owned body** into them (|v| ~900) and lets the
+  server resolve the collision - the same mechanism that makes facebang work.
+  A "force velocity" variant remains for the rare co-op physics game where you
+  really do own their parts.
+- **God mode was too naive.** `MaxHealth = math.huge` is frequently reset by
+  servers, and health was pinned once with no respawn handling. Now it uses a
+  finite `GodHealth` (1e9), re-pins from `HealthChanged` with a recursion guard,
+  re-applies on a cheap heartbeat, and restores itself after respawn.
+- **Bang styles**, for games that fight one approach: `hybrid` (CFrame +
+  velocity, the default), `velocity` (never teleports, for games that reset or
+  detect teleporting), `cframe` (teleport only). Switchable in the Aim tab.
+
+Honest limits that no style fixes: server-authoritative health means a client
+cannot stop a server kill, and a game that anchors characters or disables
+player-vs-player collision cannot be banged by any client script.

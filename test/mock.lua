@@ -230,7 +230,11 @@ local function mkChar(plr, pos)
 	local model = newInst("Model") model.Name = plr.Name model.Parent = plr
 	local head = newInst("Part", model) head.Name = "Head" head.CFrame = CFrame.new(pos)
 	local hrp = newInst("Part", model) hrp.Name = "HumanoidRootPart" hrp.CFrame = CFrame.new(pos) hrp.CanCollide = true
-	local hum = newInst("Humanoid", model) hum.Health = 100 hum.PlatformStand = false
+	local hum = newInst("Humanoid", model)
+	hum.Health = 100
+	hum.MaxHealth = 100
+	hum.PlatformStand = false
+	hum.HealthChanged = signal()
 	hum.ChangeState = function() end
 	model.Children = { head, hrp, hum }
 	plr.Character = model

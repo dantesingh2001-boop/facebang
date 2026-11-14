@@ -488,6 +488,11 @@
 
 	toggle(aim, 6, "release from seat first", function(on) Config.SeatRelease = on end, true)
 
+	stepper(aim, 7, "bang style", { "hybrid", "velocity", "cframe" }, function(v)
+		Config.BangStyle = v
+		out("bang style: " .. v)
+	end, 1)
+
 	------------------------------------------------------------------ Self tab
 	local selfPage = pages.Self
 	local so = 0
@@ -624,32 +629,42 @@
 		local p = pick() if p then Targets.teleportTo(p) end
 	end)
 
-	action(plPage, 4, "fling selected", function()
-		local p = pick() if p then Targets.fling(p, 4) end
+	action(plPage, 4, "fling selected (self-body)", function()
+		local p = pick()
+		if not p then return end
+		local ok, err = Targets.fling(p, 3, "self")
+		if not ok and err then out(err) else out("flinging " .. p.Name) end
 	end)
 
-	action(plPage, 5, "freeze selected (local view)", function()
+	action(plPage, 5, "fling selected (force velocity)", function()
+		local p = pick()
+		if not p then return end
+		local ok, err = Targets.fling(p, 3, "force")
+		if not ok and err then out(err) else out("flinging " .. p.Name) end
+	end)
+
+	action(plPage, 6, "freeze selected (local view)", function()
 		local p = pick() if p then Targets.freeze(p) end
 	end)
 
-	action(plPage, 6, "thaw selected", function()
+	action(plPage, 7, "thaw selected", function()
 		local p = pick() if p then Targets.thaw(p) end
 	end)
 
-	action(plPage, 7, "follow selected", function()
+	action(plPage, 8, "follow selected", function()
 		local p = pick() if p then Targets.follow(p) end
 	end)
 
-	action(plPage, 8, "spectate selected", function()
+	action(plPage, 9, "spectate selected", function()
 		local p = pick() if p then Targets.spectate(p) end
 	end)
 
-	action(plPage, 9, "freeze all in view (local, max 12)", function()
+	action(plPage, 10, "freeze all in view (local, max 12)", function()
 		local ok, n = Targets.freezeAll(80, 12)
 		if ok then out("froze " .. tostring(n) .. " in view") else out("no character") end
 	end)
 
-	action(plPage, 10, "stop all player actions", function()
+	action(plPage, 11, "stop all player actions", function()
 		Targets.cleanup()
 		out("player actions cleared")
 	end)
@@ -783,6 +798,7 @@
 		Engine.running = false
 		Engine.root, Engine.head = nil, nil
 		UI.state(false)
+		task.delay(0.6, function() SelfTools.onCharacterAdded() end)
 		task.delay(1.5, function()
 			if Engine.loop then Engine.start() end
 		end)
