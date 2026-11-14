@@ -18,7 +18,6 @@ local ok = API.Bang(victim)
 Report("Bang() starts", ok == true)
 Report("running flag", API.Engine.running == true)
 
-print("  render conns =", #GAME_SERVICES.RunService.RenderStepped.fns, " heartbeat conns =", #GAME_SERVICES.RunService.Heartbeat.fns)
 do
 	local P = GAME_SERVICES.Players
 	print("  target.Parent is Players =", victim.Parent == P, " char =", victim.Character ~= nil)
@@ -39,14 +38,11 @@ Report("hot path ran without errors", #ERRORS == 0, #ERRORS > 0 and ("first: " .
 
 -- 3. we must now be inside the victim's head, not at spawn
 local d = (myRoot.CFrame.Position - victimHead.CFrame.Position).Magnitude
-print("  root pos =", tostring(myRoot.CFrame.Position), " head pos =", tostring(victimHead.CFrame.Position))
-print("  CFrame writes =", #CFRAME_WRITES, " last =", #CFRAME_WRITES > 0 and tostring(CFRAME_WRITES[#CFRAME_WRITES].v.Position) or "-")
-print("  same table as driver root =", #CFRAME_WRITES > 0 and CFRAME_WRITES[#CFRAME_WRITES].t == myRoot)
-Report("root is on the victim's head", d < 1.5, ("dist=%.3f"):format(d))
+Report("fling mode does not park inside the target", d > 3, ("dist=%.3f"):format(d))
 
 -- 4. an impulse must be present after a tick
 local v = myRoot.AssemblyLinearVelocity
-Report("impulse written to root", v ~= nil and v.Magnitude >= 55, v and ("|v|=" .. v.Magnitude) or "nil")
+Report("impulse is a real closing speed", v ~= nil and v.Magnitude >= 800, v and ("|v|=" .. v.Magnitude) or "nil")
 
 -- 5. hit detection sees the victim root
 myRoot._touching = { victimRoot }
@@ -254,3 +250,25 @@ Report("ghost also pins health", lp.Character:FindFirstChildOfClass("Humanoid").
 Self.ghost(false)
 Report("ghost off restores touch", head.CanTouch == true and head.Transparency == 0)
 Report("ghost off removes forcefield", lp.Character:FindFirstChild("FB_God") == nil)
+
+-- 20. lock mode is the opposite: deliberately holds them still
+local Cfg2 = API.Config
+API.Engine.running = false
+Cfg2.BangMode = "lock"
+victim.Character = mkChar(victim, V3.new(8, 0, 0))
+myRoot.CFrame = CFrame.new(V3.new(0, 0, 0))
+API.Bang(victim)
+for _ = 1, 6 do GAME_SERVICES.RunService.RenderStepped:Fire(1/60) end
+local dLock = (myRoot.CFrame.Position - victim.Character:FindFirstChild("Head").CFrame.Position).Magnitude
+Report("lock mode parks inside the target", dLock < 1.5, ("dist=%.3f"):format(dLock))
+API.Stop()
+Cfg2.BangMode = "fling"
+
+-- 21. god speed survives a game resetting WalkSpeed
+Self.godSpeed(true, 1000)
+Report("god speed sets walkspeed", myHum.WalkSpeed == 1000, "ws=" .. tostring(myHum.WalkSpeed))
+myHum.WalkSpeed = 16
+GAME_SERVICES.RunService.Heartbeat:Fire(1/60)
+Report("god speed re-pins after a reset", myHum.WalkSpeed == 1000, "ws=" .. tostring(myHum.WalkSpeed))
+Self.godSpeed(false)
+Report("god speed off", Self.isGodSpeed() == false)

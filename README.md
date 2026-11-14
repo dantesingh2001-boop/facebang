@@ -29,8 +29,8 @@ phones and small windows, so it works on PC and mobile without two layouts.
 
 | tab | what is in it |
 | --- | --- |
-| **Aim** | bang nearest, loop / auto-retarget, stop + restore, power, vertical offset, release-from-seat, **bang style** (hybrid / velocity / cframe) |
-| **Self** | **GHOST (invisible + invincible)**, god mode, noclip, fly + fly speed, walk speed, jump power, anti-void + floor Y, invisible, anti-AFK, freeze my character, restore everything |
+| **Aim** | bang nearest, loop / auto-retarget, stop + restore, power, vertical offset, release-from-seat, **bang style** (hybrid / velocity / cframe), **bang mode** (fling / lock), fling power |
+| **Self** | **GHOST (invisible + invincible)**, **GOD SPEED**, god mode, noclip, fly + fly speed, walk speed, jump power, anti-void + floor Y, invisible, anti-AFK, freeze my character, restore everything |
 | **Players** | pick a player, then bang / teleport to / **weld fling** / fling (self-body or force) / freeze (local view) / thaw / follow / spectate, plus freeze everyone in view (capped at 12) |
 | **Server** | time of day, no fog, copy job id, rejoin, server hop, unload |
 
@@ -115,7 +115,7 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-61 checks: script loads, registers itself, the hot path runs clean, the root
+65 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
@@ -178,3 +178,23 @@ implementation and the failure handling are this project's own. The limits that
 remain are the engine's: server-authoritative `Health` and `Kick`, anchored
 characters, and games with player-vs-player collision off cannot be beaten from
 a client.
+
+**v1.4.0** — fixed the bang *freezing* the victim, and added god speed.
+
+- **The bang used to freeze the target, and that was a design flaw, not a
+  setting.** It parked your root inside their head every frame and held it
+  there. A teleport carries no momentum, and the impulse collapsed to the
+  120 floor pointing sideways from the jitter, so instead of hitting them you
+  pinned them in a permanent overlap and the solver stopped them dead.
+  Bang mode `fling` (now the default) keeps a real closing speed into the
+  target and never sits inside them: if the distance closes under 4 studs it
+  peels back to a launch point, alternating sides, so the next tick is an
+  impact rather than a hold. `lock` remains available if you actually want to
+  hold someone still.
+- **God speed** pins `WalkSpeed` from `Heartbeat`, because games reset it
+  constantly and a one-shot write is undone within a frame. Values from 200 up
+  to 4000.
+
+Regression tests cover both: fling mode must keep distance and carry >= 800
+closing speed, lock mode must park inside, and god speed must re-pin itself
+after the game clamps `WalkSpeed` back to 16.

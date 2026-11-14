@@ -217,6 +217,39 @@ function Self.new(ctx)
 		return true
 	end
 
+	--[[
+	  God speed. Games reset WalkSpeed constantly, so a one-shot write is
+	  usually undone within a frame. This pins it from Heartbeat instead, which
+	  wins against ordinary resets.
+	]]
+	function M.godSpeed(on, speed)
+		s.godSpeed = on and true or false
+		if not on then
+			s.godSpeed = false
+			local h = hum()
+			if h and s.orig.walkSpeed then pcall(function() h.WalkSpeed = s.orig.walkSpeed end) end
+			return true
+		end
+		s.godSpeedValue = speed or 500
+		if not s.godSpeedConn then
+			s.godSpeedConn = track(RunService.Heartbeat:Connect(function()
+				if not s.godSpeed then return end
+				local h = hum()
+				if not h then return end
+				local want = s.godSpeedValue or 500
+				if h.WalkSpeed ~= want then h.WalkSpeed = want end
+			end))
+		end
+		local h = hum()
+		if h then
+			s.orig.walkSpeed = s.orig.walkSpeed or h.WalkSpeed
+			h.WalkSpeed = s.godSpeedValue
+		end
+		return true
+	end
+
+	function M.isGodSpeed() return s.godSpeed == true end
+
 	function M.setJump(n)
 		local h = hum()
 		if not h then return false end
@@ -331,6 +364,8 @@ function Self.new(ctx)
 	function M.restoreAll()
 		untrackAll()
 		M.ghost(false)
+		M.godSpeed(false)
+		if s.godSpeedConn then pcall(function() s.godSpeedConn:Disconnect() end) s.godSpeedConn = nil end
 		M.unfly()
 		M.unnoclip()
 		M.stopAntiVoid()

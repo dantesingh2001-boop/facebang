@@ -523,6 +523,13 @@
 		out("bang style: " .. v)
 	end, 1)
 
+	stepper(aim, 8, "bang mode", { "fling", "lock" }, function(v)
+		Config.BangMode = v
+		out(v == "fling" and "bang mode: fling (launches)" or "bang mode: lock (holds them still)")
+	end, 1)
+
+	stepper(aim, 9, "fling power", { 800, 1600, 2500, 4000 }, function(v) Config.FlingPower = v end, 2)
+
 	------------------------------------------------------------------ Self tab
 	local selfPage = pages.Self
 	local so = 0
@@ -551,6 +558,15 @@
 	section(selfPage, sOrder(), "movement")
 
 	stepper(selfPage, sOrder(), "fly speed", { 30, 60, 100, 160, 240 }, function(v) ctx.flySpeed = v end, 2)
+	local godSpeedToggle = toggle(selfPage, sOrder(), "GOD SPEED (pinned each frame)", function(on)
+		SelfTools.godSpeed(on, ctx.godSpeedValue or 500)
+	end, false)
+
+	stepper(selfPage, sOrder(), "god speed value", { 200, 500, 1000, 2000, 4000 }, function(v)
+		ctx.godSpeedValue = v
+		if godSpeedToggle.get() then SelfTools.godSpeed(true, v) end
+	end, 2)
+
 	stepper(selfPage, sOrder(), "walk speed", { 16, 30, 50, 80, 120, 200 }, function(v) SelfTools.setSpeed(v) end, 1)
 	stepper(selfPage, sOrder(), "jump power", { 50, 75, 100, 150, 250 }, function(v) SelfTools.setJump(v) end, 1)
 

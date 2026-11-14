@@ -86,6 +86,12 @@ do
 		-- "velocity" never writes CFrame: for games that reset/reset-detect teleports
 		-- "cframe" only teleports: for games that ignore client velocity
 		BangStyle = "hybrid",
+		-- "fling" pass-through: back off and drive through them, so contact
+		--         produces an impact. This is what actually launches a player.
+		-- "lock"  park inside them (old behaviour) - holds the target still
+		--         instead of flinging, which reads as "he got frozen"
+		BangMode = "fling",
+		FlingPower = 1600,   -- closing speed for pass-through mode
 		GodHealth = 1e9,     -- finite on purpose: math.huge gets reset by servers
 		VoidFloor = -80,     -- anti-void: re-surface below this Y
 		Restore = true,      -- restore position / state / collisions on stop
@@ -327,28 +333,44 @@ do
 		end
 
 		local head = Engine.head
-		local jitter = (Engine.tick % 2 == 0) and Config.Offset or -Config.Offset
 		local from = hrp.CFrame.Position
-		local dest = head.CFrame * CFrame.new(jitter, Config.Height, 0)
-
 		local style = Config.BangStyle
-		local dx = dest.Position - from
-		local dir = dx.Magnitude > 1e-4 and dx.Unit or Vector3.new(jitter, Config.Height, 0).Unit
+		local headPos = head.CFrame.Position
 
-		if style ~= "velocity" then
-			-- overlap bug: this is what causes the collision
-			hrp.CFrame = dest
-		end
-
-		if style == "velocity" then
-			-- no teleport: fly ourselves at the target hard enough that the
-			-- server resolves the collision on the next step
-			local toHead = head.CFrame.Position - from
-			local aim = toHead.Magnitude > 1e-4 and toHead.Unit or dir
-			setVel(hrp, aim * Config.MinSpeed * 8)
+		if Config.BangMode == "lock" then
+			-- deliberate "hold them still" mode: park inside the head
+			local jitter = (Engine.tick % 2 == 0) and Config.Offset or -Config.Offset
+			local dest = head.CFrame * CFrame.new(jitter, Config.Height, 0)
+			if style ~= "velocity" then hrp.CFrame = dest end
+			local dx = dest.Position - from
+			local dir = dx.Magnitude > 1e-4 and dx.Unit or Vector3.new(jitter, Config.Height, 0).Unit
+			if style == "velocity" then
+				local toHead = headPos - from
+				setVel(hrp, (toHead.Magnitude > 1e-4 and toHead.Unit or dir) * Config.MinSpeed * 8)
+			else
+				local speed = math.clamp(dx.Magnitude * Config.Power, Config.MinSpeed, Config.MinSpeed * 5)
+				setVel(hrp, dir * speed)
+			end
 		else
-			local speed = math.clamp(dx.Magnitude * Config.Power, Config.MinSpeed, Config.MinSpeed * 5)
-			setVel(hrp, dir * speed)
+			-- pass-through: keep real closing speed, never sit inside them.
+			-- A teleport carries no momentum, so parking in the head makes the
+			-- solver pin the target instead of launching them.
+			local delta = headPos - from
+			local dist = delta.Magnitude
+			local aim = dist > 1e-3 and delta.Unit or head.CFrame.LookVector
+
+			if dist < 4 then
+				-- we are inside them: peel back to a launch point, alternating
+				-- sides so the next tick is an impact, not a hold
+				local side = (math.floor(Engine.tick / 8) % 2 == 0) and 1 or -1
+				hrp.CFrame = CFrame.new(headPos - aim * (7 * side))
+				setVel(hrp, aim * Config.FlingPower)
+			else
+				setVel(hrp, aim * Config.FlingPower)
+				if style == "cframe" then
+					hrp.CFrame = CFrame.new(from + aim * math.min(dist, 12))
+				end
+			end
 		end
 
 		-- if the game owns our parts on the server we cannot hit anything
