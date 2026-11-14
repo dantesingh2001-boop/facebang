@@ -65,6 +65,14 @@ do
 		if ok and type(name) == "string" then CAP.executor = name end
 	end
 
+	-- input surface: phones have no keyboard, so every action needs a tap path
+	local IsTouch = UserInput.TouchEnabled
+	local function viewport()
+		local cam = Workspace.CurrentCamera
+		if cam and cam.ViewportSize.X > 0 then return cam.ViewportSize end
+		return Vector2.new(1280, 720) -- camera not ready yet; caller re-applies on resize
+	end
+
 	-------------------------------------------------------------------- config
 	local Config = {
 		Power = 12,          -- velocity impulse multiplier applied to the hit
@@ -446,6 +454,7 @@ do
 		}, parent)
 		corner(b, 7)
 		stroke(b)
+		-- hover feedback is mouse-only; on touch nothing fires, which is correct
 		b.MouseEnter:Connect(function() tweenObj(b, "BackgroundColor3", Theme.accent, 0.12) end)
 		b.MouseLeave:Connect(function() tweenObj(b, "BackgroundColor3", color or Theme.row, 0.12) end)
 		return b
@@ -476,6 +485,35 @@ do
 		BackgroundColor3 = Theme.bg,
 		BorderSizePixel = 0,
 	}, gui)
+	win.AnchorPoint = Vector2.new(0, 0)
+
+	-- fit the panel inside the safe area: touch phones have less room and the
+	-- top of the screen can sit under the notch, so scale down and clamp
+	local BASE_W, BASE_H = 272, 432
+	local function fitPanel()
+		local vp = viewport()
+		local pad = 16
+		local scale = math.clamp(math.min((vp.X - pad * 2) / BASE_W, (vp.Y - pad * 2) / BASE_H), 0.62, 1)
+		win.Size = UDim2.fromOffset(BASE_W, BASE_H)
+
+		local uiScale = win:FindFirstChildOfClass("UIScale")
+		if not uiScale then
+			uiScale = Instance.new("UIScale")
+			uiScale.Parent = win
+		end
+		-- UIScale shrinks the contents, so the frame's own size must be divided
+		uiScale.Scale = scale
+		win.Size = UDim2.fromOffset(BASE_W * scale, BASE_H * scale)
+
+		local cur = win.Position
+		local maxX = math.max(pad, vp.X - win.Size.X.Offset - pad)
+		local maxY = math.max(pad, vp.Y - win.Size.Y.Offset - pad)
+		win.Position = UDim2.fromOffset(
+			math.clamp(cur.X.Offset, pad, maxX),
+			math.clamp(cur.Y.Offset, pad, maxY))
+		return scale
+	end
+
 	corner(win, 12)
 	stroke(win, Color3.fromRGB(52, 52, 64))
 	new("UIGradient", {
@@ -644,7 +682,8 @@ do
 		}, row)
 		corner(value, 5)
 		value.InputBegan:Connect(function(input)
-			if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+			local t = input.UserInputType
+			if t ~= Enum.UserInputType.MouseButton1 and t ~= Enum.UserInputType.Touch then return end
 			local step = (max - min) / 10
 			Config[prop] = Config[prop] + step
 			if Config[prop] > max + step * 0.5 then Config[prop] = min end

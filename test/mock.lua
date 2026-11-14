@@ -72,6 +72,9 @@ CFrame.__mul = function(a, b)
 end
 function CFrame:__tostring() return "CFrame" .. tostring(self.Position) end
 
+Vector2 = {
+	new = function(x, y) return { X = x or 0, Y = y or 0 } end,
+}
 Color3 = { fromRGB = function(r, g, b) return { R = r, G = g, B = b } end }
 Color3.new = function(r, g, b) return { R = r, G = g, B = b } end
 ColorSequence = { new = function(...) return { ... } end }
