@@ -151,7 +151,12 @@ local CLASS_EVENTS = {
 	MouseEnter = true,
 	MouseLeave = true,
 	MouseButton1Click = true,
+	MouseButton1Down = true,
+	MouseButton1Up = true,
+	DescendantAdded = true,
+	ChildAdded = true,
 }
+
 
 local function newInst(class, parent)
 	local p = {}
@@ -213,6 +218,16 @@ local Players = mkService("Players")
 local RunService = mkService("RunService")
 local UserInput = mkService("UserInputService")
 local Tween = mkService("TweenService")
+-- tween: apply the goal immediately so tests observe the settled state
+Tween.Create = function(_, obj, _info, goal)
+	local t = { Played = false }
+	function t:Play()
+		self.Played = true
+		for k, v in pairs(goal) do pcall(function() obj[k] = v end) end
+	end
+	t.Completed = { Connect = function() end }
+	return t
+end
 local SGui = mkService("StarterGui")
 local WS = mkService("Workspace")
 GAME_SERVICES = svc
@@ -225,9 +240,6 @@ RunService.Heartbeat = signal()
 UserInput.InputBegan = signal()
 UserInput.InputChanged = signal()
 SGui.SetCore = function() end
-Tween.Create = function(_, _, info, goal)
-	return { Play = function() end, Completed = signal() }
-end
 WS.GetPartsInPart = function(_, part) return part._touching or {} end
 
 local lp = newInst("Player") lp.Name = "me" lp.UserId = 1 lp.CharacterAdded = signal()

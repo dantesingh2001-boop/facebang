@@ -115,7 +115,7 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-65 checks: script loads, registers itself, the hot path runs clean, the root
+78 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
@@ -198,3 +198,23 @@ a client.
 Regression tests cover both: fling mode must keep distance and carry >= 800
 closing speed, lock mode must park inside, and god speed must re-pin itself
 after the game clamps `WalkSpeed` back to 16.
+
+**v1.5.0** — visual redesign.
+
+- Deeper palette with real depth: two shadow layers, a gradient window, hairline
+  strokes and a header that reads as a header (brand bar, version + executor in a
+  subtitle line, live status dot with a ring).
+- Proper control states for the first time: rows lighten on hover, tint on press,
+  and the tab pill fills with the accent when active. The primary BANG button
+  gets an accent-to-violet gradient, a glow, and a 3% press scale.
+- Toggles now slide and recolour instead of snapping, and stepper chips brighten
+  on hover.
+- Sections are marked with a small accent bar so the tabs read as groups.
+- The chevron is drawn from two rotated bars rather than a ">" glyph, which sits
+  too high at small sizes.
+
+The test harness caught a real gap here: the mock's `TweenService` was a no-op
+stub, so every UI tween was silently doing nothing. It now applies the goal
+immediately, which is what made the new toggle test meaningful. Layout is
+asserted numerically (no control may cross its row's right edge, every
+interactive row >= 26px).

@@ -67,6 +67,104 @@ for i, e in ipairs(ERRORS) do
 	if i <= 3 then print("  err: " .. e) end
 end
 
+-- 22. UI structure: layout must not overflow, and rows must stay touch-sized
+local guiRoot = nil
+local pg = GAME_SERVICES.Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+for _, d in ipairs(pg and pg:GetDescendants() or {}) do
+	if d.ClassName == "ScreenGui" and d.Name == "FaceBangUI" then guiRoot = d end
+end
+Report("UI screen exists", guiRoot ~= nil)
+
+local overflow, checked = {}, 0
+for _, d in ipairs(guiRoot:GetDescendants()) do
+	if (d.ClassName == "Frame" or d.ClassName == "TextButton" or d.ClassName == "TextLabel")
+		and d.Position and d.Size and d.Position.X.Scale == 1 then
+		checked += 1
+		-- anchored to the right edge: offset + width must not cross it
+		if d.Position.X.Offset + d.Size.X.Offset > 0.5 then
+			overflow[#overflow + 1] = tostring(d.Name or d.ClassName) ..
+				" right=" .. (d.Position.X.Offset + d.Size.X.Offset)
+		end
+	end
+end
+Report("no control overflows its row", #overflow == 0,
+	checked .. " checked" .. (#overflow > 0 and (": " .. table.concat(overflow, ", ")) or ""))
+
+-- every interactive row must be a comfortable touch target
+local tiny = 0
+local interactive = 0
+for _, d in ipairs(guiRoot:GetDescendants()) do
+	if d.ClassName == "TextButton" and d.Size.Y.Scale == 1 and d.Size.Y.Offset == 0 then
+		local host = d.Parent
+		if host and host.Size and host.Size.Y.Offset > 0 then
+			interactive += 1
+			if host.Size.Y.Offset < 26 then tiny += 1 end
+		end
+	end
+end
+Report("all interactive rows are >= 26px tall", tiny == 0,
+	interactive .. " rows, " .. tiny .. " too small")
+
+-- 23. tabs: switching must hide the others
+local function named(n)
+	for _, d in ipairs(guiRoot:GetDescendants()) do
+		if d.Name == n then return d end
+	end
+end
+local aimPage, selfPage = named("AimPage"), named("SelfPage")
+Report("tab pages exist", aimPage ~= nil and selfPage ~= nil)
+local tabBtn
+for _, d in ipairs(guiRoot:GetDescendants()) do
+	if d.ClassName == "TextButton" and d.Text == "Self" then tabBtn = d end
+end
+Report("tab button exists", tabBtn ~= nil)
+tabBtn.MouseButton1Click:Fire()
+Report("switching tab shows Self and hides Aim",
+	selfPage.Visible == true and aimPage.Visible == false)
+for _, d in ipairs(guiRoot:GetDescendants()) do
+	if d.ClassName == "TextButton" and d.Text == "Aim" then d.MouseButton1Click:Fire() end
+end
+Report("switching back restores Aim",
+	aimPage.Visible == true and selfPage.Visible == false)
+
+-- 24. toggle control: clicking must move the knob and fire the callback
+local pillRow, pillLabel
+for _, d in ipairs(guiRoot:GetDescendants()) do
+	if d.ClassName == "TextLabel" and d.Text == "noclip" then pillLabel = d end
+end
+Report("toggle row rendered", pillLabel ~= nil)
+local toggleBtn
+for _, d in ipairs(pillLabel.Parent:GetChildren()) do
+	if d.ClassName == "TextButton" then toggleBtn = d end
+end
+local knob
+for _, d in ipairs(pillLabel.Parent:GetDescendants()) do
+	if d.ClassName == "Frame" and d.Size.X.Offset == 16 and d.Size.Y.Offset == 16 then knob = d end
+end
+Report("toggle knob exists", knob ~= nil)
+local beforeX = knob.Position.X.Offset
+toggleBtn.MouseButton1Click:Fire()
+local okT, errT = pcall(function() ts:Create(knob, {}, { Position = UDim2.fromOffset(21, 3) }):Play() end)
+Report("toggle click fires and moves the knob", knob.Position.X.Offset ~= beforeX,
+	"x " .. beforeX .. " -> " .. knob.Position.X.Offset)
+
+-- 25. two-tap confirm: first tap arms, second commits
+local armedLabel
+for _, d in ipairs(guiRoot:GetDescendants()) do
+	if d.ClassName == "TextLabel" and d.Text == "restore everything" then armedLabel = d end
+end
+Report("confirm row found", armedLabel ~= nil)
+local confirmBtn
+for _, d in ipairs(armedLabel.Parent:GetChildren()) do
+	if d.ClassName == "TextButton" then confirmBtn = d end
+end
+confirmBtn.MouseButton1Click:Fire()
+Report("first tap arms instead of acting", armedLabel.Text == "tap again to confirm",
+	armedLabel.Text)
+confirmBtn.MouseButton1Click:Fire()
+Report("second tap commits and resets the label", armedLabel.Text == "restore everything",
+	armedLabel.Text)
+
 -- 8. unload destroys the gui and clears the global
 local gui = lp:FindFirstChildOfClass("PlayerGui"):FindFirstChild("FaceBangUI")
 Report("gui parented", gui ~= nil, gui and gui.Name or "")
