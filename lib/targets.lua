@@ -122,6 +122,13 @@ function Targets.new(ctx)
 		weld.Parent = myRoot
 		state.weld = weld
 
+		-- safety net: if the connection is ever starved (respawn, lag spike,
+		-- loading screen) the weld would stay in the world and the two bodies
+		-- would remain stuck together. Force the teardown on a timer as well.
+		task.delay((seconds or 2.5) + 0.5, function()
+			if state.weld == weld then M.unweld() end
+		end)
+
 		local until_ = os.clock() + (seconds or 2.5)
 		state.weldConn = RunService.RenderStepped:Connect(function()
 			if os.clock() > until_ then M.unweld() return end
@@ -170,16 +177,31 @@ function Targets.new(ctx)
 	function M.freeze(plr)
 		local theirRoot = rootOf(plr)
 		if not theirRoot then return false, "no character" end
-		state.frozen[plr] = theirRoot.CFrame
+		-- remember when it was taken: a local freeze that never expires looks
+		-- exactly like the player being welded to one spot for the rest of the
+		-- session, even after they have actually moved away
+		state.frozen[plr] = { cf = theirRoot.CFrame, t = os.clock() }
 		if not state.freezeConn then
 			state.freezeConn = RunService.RenderStepped:Connect(function()
-				for p, cf in pairs(state.frozen) do
+				local now = os.clock()
+				for p, rec in pairs(state.frozen) do
 					local r = rootOf(p)
+					-- drop it if the character is gone, or if their assembly is
+					-- really moving: fighting that just pins a moving player
+					local moving = false
 					if r then
-						pcall(function() r.CFrame = cf end)
-					else
-						state.frozen[p] = nil
+						local okv, v = pcall(function() return r.AssemblyLinearVelocity end)
+						moving = okv and v and v.Magnitude > 45
 					end
+					if not r or moving or (now - rec.t) > (Config.FreezeMax or 8) then
+						state.frozen[p] = nil
+					else
+						pcall(function() r.CFrame = rec.cf end)
+					end
+				end
+				if next(state.frozen) == nil and state.freezeConn then
+					pcall(function() state.freezeConn:Disconnect() end)
+					state.freezeConn = nil
 				end
 			end)
 		end
@@ -193,6 +215,14 @@ function Targets.new(ctx)
 			table.clear(state.frozen)
 		end
 		if next(state.frozen) == nil and state.freezeConn then
+			pcall(function() state.freezeConn:Disconnect() end)
+			state.freezeConn = nil
+		end
+	end
+
+	function M.thawAll()
+		table.clear(state.frozen)
+		if state.freezeConn then
 			pcall(function() state.freezeConn:Disconnect() end)
 			state.freezeConn = nil
 		end

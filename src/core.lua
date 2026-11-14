@@ -92,6 +92,8 @@ do
 		--         instead of flinging, which reads as "he got frozen"
 		BangMode = "fling",
 		FlingPower = 1600,   -- closing speed for pass-through mode
+		Stage = 12,          -- how far back we re-stage before each strike
+		FreezeMax = 8,       -- a local freeze expires instead of pinning forever
 		GodHealth = 1e9,     -- finite on purpose: math.huge gets reset by servers
 		VoidFloor = -80,     -- anti-void: re-surface below this Y
 		Restore = true,      -- restore position / state / collisions on stop
@@ -352,25 +354,38 @@ do
 				setVel(hrp, dir * speed)
 			end
 		else
-			-- pass-through: keep real closing speed, never sit inside them.
-			-- A teleport carries no momentum, so parking in the head makes the
-			-- solver pin the target instead of launching them.
+			-- strike cycle: stage back, then ram through. The previous version
+			-- teleported us to 7 studs from their head whenever we were close
+			-- and alternated sides, which locks the pair into a permanent
+			-- overlap - on screen that reads as both bodies welded to one spot.
 			local delta = headPos - from
 			local dist = delta.Magnitude
 			local aim = dist > 1e-3 and delta.Unit or head.CFrame.LookVector
+			local power = math.clamp(Config.FlingPower, 300, 1200)
+			local stage = Config.Stage or 12
+			-- only re-stage once we are genuinely inside them: backing off at
+			-- the full stage distance would yank us away before contact and the
+			-- bang would never land
+			local restage = math.min(4, stage)
 
-			if dist < 4 then
-				-- we are inside them: peel back to a launch point, alternating
-				-- sides so the next tick is an impact, not a hold
-				local side = (math.floor(Engine.tick / 8) % 2 == 0) and 1 or -1
-				hrp.CFrame = CFrame.new(headPos - aim * (7 * side))
-				setVel(hrp, aim * Config.FlingPower)
+			if dist < restage then
+				-- back off to a staging point along the same axis, kill our speed
+				if style ~= "velocity" then
+					pcall(function() hrp.CFrame = CFrame.new(headPos - aim * stage) end)
+				end
+				setVel(hrp, Vector3.new(0, 0, 0))
 			else
-				setVel(hrp, aim * Config.FlingPower)
+				setVel(hrp, aim * power)
 				if style == "cframe" then
-					hrp.CFrame = CFrame.new(from + aim * math.min(dist, 12))
+					local step = math.min(dist - stage, 14)
+					pcall(function() hrp.CFrame = CFrame.new(from + aim * step) end)
 				end
 			end
+			-- spin is what stops the humanoid from ever recovering, and a
+			-- spinning character drags the camera off with it
+			pcall(function()
+				hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+			end)
 		end
 
 		-- if the game owns our parts on the server we cannot hit anything

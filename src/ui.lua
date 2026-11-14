@@ -756,6 +756,14 @@
 		if ok then out(on and "ghost on" or "ghost off") end
 	end, false)
 
+	action(selfPage, sOrder(), "fix my character (reset physics)", function()
+		Targets.thawAll()
+		Targets.unfling()
+		Targets.unweld()
+		SelfTools.resetPhysics()
+		out("character reset")
+	end)
+
 	section(selfPage, sOrder(), "protection")
 
 	local godToggle = toggle(selfPage, sOrder(), "god mode (health pinned)", function(on)

@@ -115,7 +115,7 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-78 checks: script loads, registers itself, the hot path runs clean, the root
+87 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
@@ -218,3 +218,35 @@ stub, so every UI tween was silently doing nothing. It now applies the goal
 immediately, which is what made the new toggle test meaningful. Layout is
 asserted numerically (no control may cross its row's right edge, every
 interactive row >= 26px).
+
+**v1.6.0** — fixed the victim appearing frozen / welded to one spot.
+
+The bang itself never writes to the other player's transform, so it cannot pin
+them. Two other things could, and both were real bugs:
+
+- **A local freeze never expired.** `freeze selected` / `freeze all in view`
+  captured the target's `CFrame` once and re-applied it on every frame forever.
+  That pins them at that exact spot on your screen, and it keeps doing it after
+  they have genuinely moved away - which is what "welded to one place" looks
+  like. A freeze now expires after `Config.FreezeMax` seconds, and is dropped
+  early if their assembly is actually moving (over 45 studs/s), because fighting
+  a moving player just glues them in place.
+- **The weld fling had no guaranteed teardown.** If the RenderStepped loop ever
+  stopped ticking (respawn, lag spike, loading screen) the `WeldConstraint`
+  stayed in the world and the two bodies really did stay welded. Teardown now
+  also runs on a timer.
+
+Also changed:
+- Bang mode `fling` no longer teleports you to 7 studs from their head whenever
+  you are close, alternating sides every 8 ticks. That approach keeps you locked
+  in a permanent overlap with them, which reads as both bodies stuck together.
+  It now stages back only when you are genuinely inside them (under 4 studs),
+  rams from there, and zeroes your angular velocity each tick - spin is what
+  stops the humanoid recovering and drags the camera after it.
+- New **fix my character (reset physics)** row: clears freezes, flings and welds,
+  zeroes your own velocities, clears PlatformStand/Sit and re-points the camera
+  at your humanoid. Use it if anything ever leaves you stuck.
+
+Tests: the bang must ramp toward a target 8 studs away (velocity dot > 0.9) and
+must keep working distance rather than parking on their head; a stale freeze must
+expire and must not fight a moving target.

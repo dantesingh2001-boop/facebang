@@ -92,6 +92,8 @@ do
 		--         instead of flinging, which reads as "he got frozen"
 		BangMode = "fling",
 		FlingPower = 1600,   -- closing speed for pass-through mode
+		Stage = 12,          -- how far back we re-stage before each strike
+		FreezeMax = 8,       -- a local freeze expires instead of pinning forever
 		GodHealth = 1e9,     -- finite on purpose: math.huge gets reset by servers
 		VoidFloor = -80,     -- anti-void: re-surface below this Y
 		Restore = true,      -- restore position / state / collisions on stop
@@ -352,25 +354,38 @@ do
 				setVel(hrp, dir * speed)
 			end
 		else
-			-- pass-through: keep real closing speed, never sit inside them.
-			-- A teleport carries no momentum, so parking in the head makes the
-			-- solver pin the target instead of launching them.
+			-- strike cycle: stage back, then ram through. The previous version
+			-- teleported us to 7 studs from their head whenever we were close
+			-- and alternated sides, which locks the pair into a permanent
+			-- overlap - on screen that reads as both bodies welded to one spot.
 			local delta = headPos - from
 			local dist = delta.Magnitude
 			local aim = dist > 1e-3 and delta.Unit or head.CFrame.LookVector
+			local power = math.clamp(Config.FlingPower, 300, 1200)
+			local stage = Config.Stage or 12
+			-- only re-stage once we are genuinely inside them: backing off at
+			-- the full stage distance would yank us away before contact and the
+			-- bang would never land
+			local restage = math.min(4, stage)
 
-			if dist < 4 then
-				-- we are inside them: peel back to a launch point, alternating
-				-- sides so the next tick is an impact, not a hold
-				local side = (math.floor(Engine.tick / 8) % 2 == 0) and 1 or -1
-				hrp.CFrame = CFrame.new(headPos - aim * (7 * side))
-				setVel(hrp, aim * Config.FlingPower)
+			if dist < restage then
+				-- back off to a staging point along the same axis, kill our speed
+				if style ~= "velocity" then
+					pcall(function() hrp.CFrame = CFrame.new(headPos - aim * stage) end)
+				end
+				setVel(hrp, Vector3.new(0, 0, 0))
 			else
-				setVel(hrp, aim * Config.FlingPower)
+				setVel(hrp, aim * power)
 				if style == "cframe" then
-					hrp.CFrame = CFrame.new(from + aim * math.min(dist, 12))
+					local step = math.min(dist - stage, 14)
+					pcall(function() hrp.CFrame = CFrame.new(from + aim * step) end)
 				end
 			end
+			-- spin is what stops the humanoid from ever recovering, and a
+			-- spinning character drags the camera off with it
+			pcall(function()
+				hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+			end)
 		end
 
 		-- if the game owns our parts on the server we cannot hit anything
@@ -628,6 +643,13 @@ function Targets.new(ctx)
 		weld.Parent = myRoot
 		state.weld = weld
 
+		-- safety net: if the connection is ever starved (respawn, lag spike,
+		-- loading screen) the weld would stay in the world and the two bodies
+		-- would remain stuck together. Force the teardown on a timer as well.
+		task.delay((seconds or 2.5) + 0.5, function()
+			if state.weld == weld then M.unweld() end
+		end)
+
 		local until_ = os.clock() + (seconds or 2.5)
 		state.weldConn = RunService.RenderStepped:Connect(function()
 			if os.clock() > until_ then M.unweld() return end
@@ -676,16 +698,31 @@ function Targets.new(ctx)
 	function M.freeze(plr)
 		local theirRoot = rootOf(plr)
 		if not theirRoot then return false, "no character" end
-		state.frozen[plr] = theirRoot.CFrame
+		-- remember when it was taken: a local freeze that never expires looks
+		-- exactly like the player being welded to one spot for the rest of the
+		-- session, even after they have actually moved away
+		state.frozen[plr] = { cf = theirRoot.CFrame, t = os.clock() }
 		if not state.freezeConn then
 			state.freezeConn = RunService.RenderStepped:Connect(function()
-				for p, cf in pairs(state.frozen) do
+				local now = os.clock()
+				for p, rec in pairs(state.frozen) do
 					local r = rootOf(p)
+					-- drop it if the character is gone, or if their assembly is
+					-- really moving: fighting that just pins a moving player
+					local moving = false
 					if r then
-						pcall(function() r.CFrame = cf end)
-					else
-						state.frozen[p] = nil
+						local okv, v = pcall(function() return r.AssemblyLinearVelocity end)
+						moving = okv and v and v.Magnitude > 45
 					end
+					if not r or moving or (now - rec.t) > (Config.FreezeMax or 8) then
+						state.frozen[p] = nil
+					else
+						pcall(function() r.CFrame = rec.cf end)
+					end
+				end
+				if next(state.frozen) == nil and state.freezeConn then
+					pcall(function() state.freezeConn:Disconnect() end)
+					state.freezeConn = nil
 				end
 			end)
 		end
@@ -699,6 +736,14 @@ function Targets.new(ctx)
 			table.clear(state.frozen)
 		end
 		if next(state.frozen) == nil and state.freezeConn then
+			pcall(function() state.freezeConn:Disconnect() end)
+			state.freezeConn = nil
+		end
+	end
+
+	function M.thawAll()
+		table.clear(state.frozen)
+		if state.freezeConn then
 			pcall(function() state.freezeConn:Disconnect() end)
 			state.freezeConn = nil
 		end
@@ -1023,6 +1068,32 @@ function Self.new(ctx)
 		if not h then return false end
 		s.orig.walkSpeed = s.orig.walkSpeed or h.WalkSpeed
 		h.WalkSpeed = n
+		return true
+	end
+
+	--[[
+	  Fix a stuck character. Every exploit that moves your body can leave you
+	  spun, anchored in mid-air, seated, or with the camera following something
+	  else - which is what "my screen is stuck on one spot" feels like. This
+	  clears all of it and re-points the camera at your own humanoid.
+	]]
+	function M.resetPhysics()
+		local c = char()
+		if not c then return false, "no character" end
+		for _, d in ipairs(c:GetDescendants()) do
+			if d:IsA("BasePart") then
+				pcall(function() d.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+				pcall(function() d.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
+			end
+		end
+		local h = hum()
+		if h then
+			pcall(function() h.PlatformStand = false end)
+			pcall(function() h.Sit = false end)
+			pcall(function() h.AutoRotate = true end)
+			local cam = Workspace.CurrentCamera
+			if cam then pcall(function() cam.CameraSubject = h end) end
+		end
 		return true
 	end
 
@@ -1953,6 +2024,14 @@ end
 		if not ok and err then out(err) end
 		if ok then out(on and "ghost on" or "ghost off") end
 	end, false)
+
+	action(selfPage, sOrder(), "fix my character (reset physics)", function()
+		Targets.thawAll()
+		Targets.unfling()
+		Targets.unweld()
+		SelfTools.resetPhysics()
+		out("character reset")
+	end)
 
 	section(selfPage, sOrder(), "protection")
 

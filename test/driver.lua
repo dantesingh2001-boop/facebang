@@ -370,3 +370,49 @@ GAME_SERVICES.RunService.Heartbeat:Fire(1/60)
 Report("god speed re-pins after a reset", myHum.WalkSpeed == 1000, "ws=" .. tostring(myHum.WalkSpeed))
 Self.godSpeed(false)
 Report("god speed off", Self.isGodSpeed() == false)
+
+-- 26. resetPhysics clears a stuck character and re-points the camera
+myRoot.AssemblyLinearVelocity = V3.new(500, 500, 500)
+myRoot.AssemblyAngularVelocity = V3.new(40, 40, 40)
+myHum.PlatformStand = true
+myHum.Sit = true
+GAME_SERVICES.Workspace.CurrentCamera.CameraSubject = nil
+local okR = Self.resetPhysics()
+Report("resetPhysics runs", okR == true)
+Report("resetPhysics kills linear velocity", myRoot.AssemblyLinearVelocity.Magnitude == 0)
+Report("resetPhysics kills angular spin", myRoot.AssemblyAngularVelocity.Magnitude == 0)
+Report("resetPhysics clears platformstand/sit", myHum.PlatformStand == false and myHum.Sit == false)
+Report("resetPhysics restores the camera subject",
+	GAME_SERVICES.Workspace.CurrentCamera.CameraSubject == myHum)
+
+-- 27. a local freeze must expire instead of pinning a player forever
+API.Config.FreezeMax = -1 -- every freeze is already "older than the limit"
+Targets.freeze(victim)
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+Report("old freeze expires on its own", Targets.isFrozen(victim) == false)
+API.Config.FreezeMax = 8
+
+-- 28. a freeze must not fight a player who is genuinely moving
+Targets.freeze(victim)
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+vRoot.AssemblyLinearVelocity = V3.new(0, 0, 90)
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+Report("freeze drops once the target really moves", Targets.isFrozen(victim) == false)
+
+-- 29. the bang must actually be able to reach them: at 8 studs it must ramp
+--     toward the target, and only re-stage when genuinely inside
+API.Config.BangMode = "fling"
+victim.Character = mkChar(victim, V3.new(0, 0, -8))
+myRoot.CFrame = CFrame.new(V3.new(0, 0, 0))
+API.Engine.running = false
+API.Bang(victim)
+for _ = 1, 2 do GAME_SERVICES.RunService.RenderStepped:Fire(1/60) end
+local toThem = victim.Character:FindFirstChild("Head").CFrame.Position - myRoot.CFrame.Position
+local closing = myRoot.AssemblyLinearVelocity
+Report("bang ramps toward a target 8 studs away",
+	closing.Magnitude > 300 and closing.Unit:Dot(toThem.Unit) > 0.9,
+	("|v|=%.0f dot=%.2f"):format(closing.Magnitude, closing.Unit:Dot(toThem.Unit)))
+-- and it must not teleport us onto their head (the old freeze-the-victim bug)
+local dNow = (myRoot.CFrame.Position - victim.Character:FindFirstChild("Head").CFrame.Position).Magnitude
+Report("bang keeps working distance instead of parking", dNow > 3, ("d=%.2f"):format(dNow))
+API.Stop()

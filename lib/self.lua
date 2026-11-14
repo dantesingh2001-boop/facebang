@@ -218,6 +218,32 @@ function Self.new(ctx)
 	end
 
 	--[[
+	  Fix a stuck character. Every exploit that moves your body can leave you
+	  spun, anchored in mid-air, seated, or with the camera following something
+	  else - which is what "my screen is stuck on one spot" feels like. This
+	  clears all of it and re-points the camera at your own humanoid.
+	]]
+	function M.resetPhysics()
+		local c = char()
+		if not c then return false, "no character" end
+		for _, d in ipairs(c:GetDescendants()) do
+			if d:IsA("BasePart") then
+				pcall(function() d.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+				pcall(function() d.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
+			end
+		end
+		local h = hum()
+		if h then
+			pcall(function() h.PlatformStand = false end)
+			pcall(function() h.Sit = false end)
+			pcall(function() h.AutoRotate = true end)
+			local cam = Workspace.CurrentCamera
+			if cam then pcall(function() cam.CameraSubject = h end) end
+		end
+		return true
+	end
+
+	--[[
 	  God speed. Games reset WalkSpeed constantly, so a one-shot write is
 	  usually undone within a frame. This pins it from Heartbeat instead, which
 	  wins against ordinary resets.

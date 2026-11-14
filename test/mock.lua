@@ -23,6 +23,12 @@ V3.__index = function(t, k)
 		local m = t.Magnitude
 		if m == 0 then return V3.new(0, 0, 0) end
 		return V3.new(t.x / m, t.y / m, t.z / m)
+	elseif k == "Dot" then
+		return function(a, b) return a.x * b.x + a.y * b.y + a.z * b.z end
+	elseif k == "Cross" then
+		return function(a, b)
+			return V3.new(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
+		end
 	end
 	return nil
 end
@@ -43,6 +49,17 @@ function V3.new(x, y, z)
 				local m = math.sqrt(v.x ^ 2 + v.y ^ 2 + v.z ^ 2)
 				if m == 0 then return V3.new(0, 0, 0) end
 				return V3.new(v.x / m, v.y / m, v.z / m)
+			elseif k == "Dot" then
+				return function(a, b)
+					local av, bv = rawget(a, "_v"), rawget(b, "_v")
+					return av.x * bv.x + av.y * bv.y + av.z * bv.z
+				end
+			elseif k == "Cross" then
+				return function(a, b)
+					local av, bv = rawget(a, "_v"), rawget(b, "_v")
+					return V3.new(av.y * bv.z - av.z * bv.y,
+						av.z * bv.x - av.x * bv.z, av.x * bv.y - av.y * bv.x)
+				end
 			end
 			return nil
 		end,
@@ -241,6 +258,10 @@ UserInput.InputBegan = signal()
 UserInput.InputChanged = signal()
 SGui.SetCore = function() end
 WS.GetPartsInPart = function(_, part) return part._touching or {} end
+function Inst:GetPropertyChangedSignal() return signal() end
+WS.CurrentCamera = { CameraSubject = nil, ViewportSize = V3.new(1280, 720, 0),
+	CFrame = CFrame.new(V3.new(0, 0, 0)),
+	GetPropertyChangedSignal = function() return signal() end }
 
 local lp = newInst("Player") lp.Name = "me" lp.UserId = 1 lp.CharacterAdded = signal()
 Players.LocalPlayer = lp
