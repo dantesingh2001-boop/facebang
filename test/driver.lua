@@ -223,3 +223,34 @@ Report("velocity style still applies speed", myRoot.AssemblyLinearVelocity.Magni
 	"|v|=" .. tostring(myRoot.AssemblyLinearVelocity.Magnitude))
 API.Stop()
 Cfg.BangStyle = "hybrid"
+
+-- 18. weld fling: weld exists while active, torn down after, mass restored
+victim.Character = mkChar(victim, V3.new(5, 0, 0))
+local vRoot3 = victim.Character:FindFirstChild("HumanoidRootPart")
+Targets.flingWeld(victim, 2.5)
+local weld = nil
+for _, c in ipairs(myRoot:GetChildren()) do
+	if c.ClassName == "WeldConstraint" then weld = c end
+end
+Report("weld fling creates a weld", weld ~= nil)
+Report("weld connects our root to theirs", weld ~= nil and weld.Part0 == myRoot and weld.Part1 == vRoot3)
+Report("target parts made massless", vRoot3.Massless == true)
+GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
+Report("weld fling launches the assembly", myRoot.AssemblyLinearVelocity.Magnitude > 300,
+	"|v|=" .. tostring(myRoot.AssemblyLinearVelocity.Magnitude))
+Targets.unweld()
+Report("unweld removes the weld", weld.Parent == nil)
+Report("unweld restores mass", vRoot3.Massless == false)
+
+-- 19. ghost / invincible
+local okG = Self.ghost(true)
+local head = lp.Character:FindFirstChild("Head")
+Report("ghost turns on", okG == true and Self.isGhost() == true)
+Report("ghost disables touch damage", head.CanTouch == false)
+Report("ghost makes invisible", head.Transparency == 1)
+local ff = lp.Character:FindFirstChild("FB_God")
+Report("ghost adds a hidden forcefield", ff ~= nil and ff.Visible == false)
+Report("ghost also pins health", lp.Character:FindFirstChildOfClass("Humanoid").MaxHealth >= 1e6)
+Self.ghost(false)
+Report("ghost off restores touch", head.CanTouch == true and head.Transparency == 0)
+Report("ghost off removes forcefield", lp.Character:FindFirstChild("FB_God") == nil)

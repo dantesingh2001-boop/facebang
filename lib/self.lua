@@ -240,6 +240,66 @@ function Self.new(ctx)
 		return true
 	end
 
+	--[[
+	  Ghost / invincible. This is the combination that actually does something,
+	  rather than just pinning MaxHealth:
+
+	  - CanTouch = false on every part  -> local touch-based damage never fires
+	  - a hidden ForceField            -> blocks the server's damage replication
+	                                      for as long as it lives
+	  - Transparency = 1               -> invisible
+	  - health still pinned            -> covers scripted local damage
+
+	  The root keeps CanCollide so you do not fall through the floor.
+	  Server-side kills that bypass all of the above still land: nothing a client
+	  can do about a :Kick or an authoritative Health = 0.
+	]]
+	function M.ghost(on)
+		s.ghost = on and true or false
+		local c = char()
+		if not c then return false, "no character" end
+
+		if not on then
+			for _, d in ipairs(c:GetDescendants()) do
+				if d:IsA("BasePart") then
+					pcall(function() d.CanTouch = true end)
+					pcall(function() d.Transparency = 0 end)
+				elseif d:IsA("ForceField") and d.Name == "FB_God" then
+					pcall(function() d:Destroy() end)
+				end
+			end
+			M.godMode(false)
+			return true
+		end
+
+		for _, d in ipairs(c:GetDescendants()) do
+			if d:IsA("BasePart") then
+				pcall(function() d.CanTouch = false end)
+				pcall(function() d.Transparency = 1 end)
+			end
+		end
+		if not c:FindFirstChild("FB_God") then
+			local ff = Instance.new("ForceField")
+			ff.Name = "FB_God"
+			ff.Visible = false
+			ff.Parent = c
+		end
+		M.godMode(true)
+
+		-- parts added later (tools, accessories) must not reopen the hitbox
+		if s.ghostConn then pcall(function() s.ghostConn:Disconnect() end) end
+		s.ghostConn = track(c.DescendantAdded:Connect(function(d)
+			if not s.ghost then return end
+			if d:IsA("BasePart") then
+				pcall(function() d.CanTouch = false end)
+				pcall(function() d.Transparency = 1 end)
+			end
+		end))
+		return true
+	end
+
+	function M.isGhost() return s.ghost == true end
+
 	------------------------------------------------------------------- anti afk
 	function M.antiAfk(on)
 		if not on then
@@ -265,11 +325,12 @@ function Self.new(ctx)
 	function M.isFrozen() return s.frozen end
 
 	function M.onCharacterAdded()
-		if s.god then M.godMode(true) end
+		if s.ghost then M.ghost(true) elseif s.god then M.godMode(true) end
 	end
 
 	function M.restoreAll()
 		untrackAll()
+		M.ghost(false)
 		M.unfly()
 		M.unnoclip()
 		M.stopAntiVoid()

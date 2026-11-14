@@ -574,6 +574,76 @@ function Targets.new(ctx)
 		return true
 	end
 
+	--[[
+	  Weld fling. Found in the wild as "fling based on welding": weld our root to
+	  theirs and move, so the target is dragged by OUR owned assembly. Two things
+	  the naive version gets wrong and this one handles:
+
+	  - their parts must be Massless, otherwise the shared assembly is so heavy
+	    that our own movement stalls and nothing launches
+	  - a root-to-root weld shares damage, so it is always torn down afterwards
+	]]
+	function M.flingWeld(plr, seconds)
+		local theirRoot = rootOf(plr)
+		local myRoot = rootOf(LP)
+		if not theirRoot or not myRoot then return false, "no character" end
+
+		M.unweld()
+		state.weldTarget = plr
+
+		-- make their body carry no mass into our assembly
+		local theirChar = plr.Character
+		for _, d in ipairs(theirChar:GetDescendants()) do
+			if d:IsA("BasePart") then
+				pcall(function() d.Massless = true end)
+			end
+		end
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "FB_WeldFling"
+		weld.Part0 = myRoot
+		weld.Part1 = theirRoot
+		weld.Parent = myRoot
+		state.weld = weld
+
+		local until_ = os.clock() + (seconds or 2.5)
+		state.weldConn = RunService.RenderStepped:Connect(function()
+			if os.clock() > until_ then M.unweld() return end
+			local mr = rootOf(LP)
+			if not mr then M.unweld() return end
+			-- fling the welded assembly: spin + launch
+			pcall(function()
+				mr.AssemblyLinearVelocity =
+					mr.CFrame.RightVector * 700 + Vector3.new(0, 900, 0)
+				mr.AssemblyAngularVelocity = Vector3.new(400, 400, 400)
+			end)
+		end)
+		return true
+	end
+
+	function M.unweld()
+		state.weldTarget = nil
+		if state.weldConn then
+			pcall(function() state.weldConn:Disconnect() end)
+			state.weldConn = nil
+		end
+		if state.weld then
+			pcall(function() state.weld:Destroy() end)
+			state.weld = nil
+		end
+		-- hand their mass back so we do not leave their physics changed
+		for _, plr in ipairs(Players:GetPlayers()) do
+			local c = plr.Character
+			if c and plr ~= LP then
+				for _, d in ipairs(c:GetDescendants()) do
+					if d:IsA("BasePart") and d.Massless then
+						pcall(function() d.Massless = false end)
+					end
+				end
+			end
+		end
+	end
+
 	function M.unfling()
 		if state.flingConn then
 			pcall(function() state.flingConn:Disconnect() end)
@@ -701,6 +771,7 @@ function Targets.new(ctx)
 	end
 
 	function M.cleanup()
+		M.unweld()
 		M.unfling()
 		M.thaw()
 		M.unfollow()
@@ -956,6 +1027,66 @@ function Self.new(ctx)
 		return true
 	end
 
+	--[[
+	  Ghost / invincible. This is the combination that actually does something,
+	  rather than just pinning MaxHealth:
+
+	  - CanTouch = false on every part  -> local touch-based damage never fires
+	  - a hidden ForceField            -> blocks the server's damage replication
+	                                      for as long as it lives
+	  - Transparency = 1               -> invisible
+	  - health still pinned            -> covers scripted local damage
+
+	  The root keeps CanCollide so you do not fall through the floor.
+	  Server-side kills that bypass all of the above still land: nothing a client
+	  can do about a :Kick or an authoritative Health = 0.
+	]]
+	function M.ghost(on)
+		s.ghost = on and true or false
+		local c = char()
+		if not c then return false, "no character" end
+
+		if not on then
+			for _, d in ipairs(c:GetDescendants()) do
+				if d:IsA("BasePart") then
+					pcall(function() d.CanTouch = true end)
+					pcall(function() d.Transparency = 0 end)
+				elseif d:IsA("ForceField") and d.Name == "FB_God" then
+					pcall(function() d:Destroy() end)
+				end
+			end
+			M.godMode(false)
+			return true
+		end
+
+		for _, d in ipairs(c:GetDescendants()) do
+			if d:IsA("BasePart") then
+				pcall(function() d.CanTouch = false end)
+				pcall(function() d.Transparency = 1 end)
+			end
+		end
+		if not c:FindFirstChild("FB_God") then
+			local ff = Instance.new("ForceField")
+			ff.Name = "FB_God"
+			ff.Visible = false
+			ff.Parent = c
+		end
+		M.godMode(true)
+
+		-- parts added later (tools, accessories) must not reopen the hitbox
+		if s.ghostConn then pcall(function() s.ghostConn:Disconnect() end) end
+		s.ghostConn = track(c.DescendantAdded:Connect(function(d)
+			if not s.ghost then return end
+			if d:IsA("BasePart") then
+				pcall(function() d.CanTouch = false end)
+				pcall(function() d.Transparency = 1 end)
+			end
+		end))
+		return true
+	end
+
+	function M.isGhost() return s.ghost == true end
+
 	------------------------------------------------------------------- anti afk
 	function M.antiAfk(on)
 		if not on then
@@ -981,11 +1112,12 @@ function Self.new(ctx)
 	function M.isFrozen() return s.frozen end
 
 	function M.onCharacterAdded()
-		if s.god then M.godMode(true) end
+		if s.ghost then M.ghost(true) elseif s.god then M.godMode(true) end
 	end
 
 	function M.restoreAll()
 		untrackAll()
+		M.ghost(false)
 		M.unfly()
 		M.unnoclip()
 		M.stopAntiVoid()
@@ -1102,6 +1234,17 @@ end
 	end)()
 	gui.Parent = parentGui
 
+	local shadow = new("Frame", {
+		Name = "Shadow",
+		Size = UDim2.fromOffset(BASE_W, BASE_H),
+		Position = UDim2.new(0, 30, 0.5, -BASE_H / 2 + 6),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.55,
+		BorderSizePixel = 0,
+		ZIndex = 0,
+	}, gui)
+	corner(shadow, 14)
+
 	local win = new("Frame", {
 		Name = "Window",
 		Size = UDim2.fromOffset(BASE_W, BASE_H),
@@ -1122,10 +1265,12 @@ end
 		local scale = math.clamp(math.min((vp.X - pad * 2) / BASE_W, (vp.Y - pad * 2) / BASE_H), 0.6, 1)
 		uiScale.Scale = scale
 		win.Size = UDim2.fromOffset(BASE_W * scale, BASE_H * scale)
+		shadow.Size = win.Size
 		local cur = win.Position
 		win.Position = UDim2.fromOffset(
 			math.clamp(cur.X.Offset, pad, math.max(pad, vp.X - win.Size.X.Offset - pad)),
 			math.clamp(cur.Y.Offset, pad, math.max(pad, vp.Y - win.Size.Y.Offset - pad)))
+		shadow.Position = UDim2.fromOffset(win.Position.X.Offset + 6, win.Position.Y.Offset + 6)
 		return scale
 	end
 	fitPanel()
@@ -1201,6 +1346,7 @@ end
 		local d = input.Position - dragStart
 		local vp = viewport()
 		local pad = 14
+		shadow.Position = UDim2.fromOffset(win.Position.X.Offset + 6, win.Position.Y.Offset + 6)
 		local nx = math.clamp(dragOrigin.X.Offset + d.X, pad, math.max(pad, vp.X - win.Size.X.Offset - pad))
 		local ny = math.clamp(dragOrigin.Y.Offset + d.Y, pad, math.max(pad, vp.Y - win.Size.Y.Offset - pad))
 		win.Position = UDim2.fromOffset(nx, ny)
@@ -1273,6 +1419,7 @@ end
 			Visible = false,
 		}, pageHost)
 		new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, p)
+		new("UIPadding", { PaddingRight = UDim.new(0, 6), PaddingBottom = UDim.new(0, 8) }, p)
 		pages[name] = p
 		return p
 	end
@@ -1319,6 +1466,21 @@ end
 			TextSize = 12,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 		}, row)
+	end
+
+	-- small caption that groups rows, so the tabs read as sections not a list
+	local function section(page, order, text)
+		local l = new("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 14),
+			BackgroundTransparency = 1,
+			Text = string.upper(text),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Theme.dim,
+			Font = Enum.Font.GothamBold,
+			TextSize = 9,
+			LayoutOrder = order,
+		}, page)
+		return l
 	end
 
 	-- action row: tap to fire
@@ -1507,6 +1669,14 @@ end
 	local so = 0
 	local function sOrder() so += 1 return so end
 
+	local ghostToggle = toggle(selfPage, sOrder(), "GHOST - invisible + invincible", function(on)
+		local ok, err = SelfTools.ghost(on)
+		if not ok and err then out(err) end
+		if ok then out(on and "ghost on" or "ghost off") end
+	end, false)
+
+	section(selfPage, sOrder(), "protection")
+
 	local godToggle = toggle(selfPage, sOrder(), "god mode (health pinned)", function(on)
 		SelfTools.godMode(on)
 		if not on then SelfTools.restoreAll() SelfTools.godMode(false) end
@@ -1518,6 +1688,8 @@ end
 		local ok, err = SelfTools.fly(on, ctx.flySpeed or 60)
 		if not ok and err then out(err) end
 	end, false)
+
+	section(selfPage, sOrder(), "movement")
 
 	stepper(selfPage, sOrder(), "fly speed", { 30, 60, 100, 160, 240 }, function(v) ctx.flySpeed = v end, 2)
 	stepper(selfPage, sOrder(), "walk speed", { 16, 30, 50, 80, 120, 200 }, function(v) SelfTools.setSpeed(v) end, 1)
@@ -1638,12 +1810,23 @@ end
 		local p = pick() if p then Targets.teleportTo(p) end
 	end)
 
+	section(plPage, 2, "attack")
+
+	action(plPage, 3, "weld fling (weld + drag, strongest)", function()
+		local p = pick()
+		if not p then out("no player selected") return end
+		local ok, err = Targets.flingWeld(p, 2.5)
+		if not ok and err then out(err) else out("weld flinging " .. p.Name) end
+	end)
+
 	action(plPage, 4, "fling selected (self-body)", function()
 		local p = pick()
 		if not p then return end
 		local ok, err = Targets.fling(p, 3, "self")
 		if not ok and err then out(err) else out("flinging " .. p.Name) end
 	end)
+
+	section(plPage, 10, "movement")
 
 	action(plPage, 5, "fling selected (force velocity)", function()
 		local p = pick()

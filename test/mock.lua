@@ -192,7 +192,15 @@ end
 function Inst:GetTouchingParts() return self._touching or {} end
 function Inst:GetNetworkOwner() return nil end
 function Inst:SetNetworkOwner() end
-function Inst:Destroy() self.Parent = nil end
+function Inst:Destroy()
+	local p = self.Parent
+	if p and p.Children then
+		for i, c in ipairs(p.Children) do
+			if c == self then table.remove(p.Children, i) break end
+		end
+	end
+	self.Parent = nil
+end
 function Inst:WaitForChild(n) return self:FindFirstChild(n) end
 function Inst:GetService(n) return GAME_SERVICES[n] end
 
@@ -229,7 +237,10 @@ local pgui = newInst("PlayerGui") pgui.Parent = lp lp.Children = { pgui }
 local function mkChar(plr, pos)
 	local model = newInst("Model") model.Name = plr.Name model.Parent = plr
 	local head = newInst("Part", model) head.Name = "Head" head.CFrame = CFrame.new(pos)
+	head.Transparency = 0 head.CanTouch = true head.Massless = false
 	local hrp = newInst("Part", model) hrp.Name = "HumanoidRootPart" hrp.CFrame = CFrame.new(pos) hrp.CanCollide = true
+	hrp.Transparency = 0 hrp.CanTouch = true hrp.Massless = false
+	model.DescendantAdded = signal()
 	local hum = newInst("Humanoid", model)
 	hum.Health = 100
 	hum.MaxHealth = 100

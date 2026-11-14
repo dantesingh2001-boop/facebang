@@ -90,6 +90,76 @@ function Targets.new(ctx)
 		return true
 	end
 
+	--[[
+	  Weld fling. Found in the wild as "fling based on welding": weld our root to
+	  theirs and move, so the target is dragged by OUR owned assembly. Two things
+	  the naive version gets wrong and this one handles:
+
+	  - their parts must be Massless, otherwise the shared assembly is so heavy
+	    that our own movement stalls and nothing launches
+	  - a root-to-root weld shares damage, so it is always torn down afterwards
+	]]
+	function M.flingWeld(plr, seconds)
+		local theirRoot = rootOf(plr)
+		local myRoot = rootOf(LP)
+		if not theirRoot or not myRoot then return false, "no character" end
+
+		M.unweld()
+		state.weldTarget = plr
+
+		-- make their body carry no mass into our assembly
+		local theirChar = plr.Character
+		for _, d in ipairs(theirChar:GetDescendants()) do
+			if d:IsA("BasePart") then
+				pcall(function() d.Massless = true end)
+			end
+		end
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "FB_WeldFling"
+		weld.Part0 = myRoot
+		weld.Part1 = theirRoot
+		weld.Parent = myRoot
+		state.weld = weld
+
+		local until_ = os.clock() + (seconds or 2.5)
+		state.weldConn = RunService.RenderStepped:Connect(function()
+			if os.clock() > until_ then M.unweld() return end
+			local mr = rootOf(LP)
+			if not mr then M.unweld() return end
+			-- fling the welded assembly: spin + launch
+			pcall(function()
+				mr.AssemblyLinearVelocity =
+					mr.CFrame.RightVector * 700 + Vector3.new(0, 900, 0)
+				mr.AssemblyAngularVelocity = Vector3.new(400, 400, 400)
+			end)
+		end)
+		return true
+	end
+
+	function M.unweld()
+		state.weldTarget = nil
+		if state.weldConn then
+			pcall(function() state.weldConn:Disconnect() end)
+			state.weldConn = nil
+		end
+		if state.weld then
+			pcall(function() state.weld:Destroy() end)
+			state.weld = nil
+		end
+		-- hand their mass back so we do not leave their physics changed
+		for _, plr in ipairs(Players:GetPlayers()) do
+			local c = plr.Character
+			if c and plr ~= LP then
+				for _, d in ipairs(c:GetDescendants()) do
+					if d:IsA("BasePart") and d.Massless then
+						pcall(function() d.Massless = false end)
+					end
+				end
+			end
+		end
+	end
+
 	function M.unfling()
 		if state.flingConn then
 			pcall(function() state.flingConn:Disconnect() end)
@@ -217,6 +287,7 @@ function Targets.new(ctx)
 	end
 
 	function M.cleanup()
+		M.unweld()
 		M.unfling()
 		M.thaw()
 		M.unfollow()

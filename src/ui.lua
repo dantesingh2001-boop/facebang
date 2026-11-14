@@ -93,6 +93,17 @@
 	end)()
 	gui.Parent = parentGui
 
+	local shadow = new("Frame", {
+		Name = "Shadow",
+		Size = UDim2.fromOffset(BASE_W, BASE_H),
+		Position = UDim2.new(0, 30, 0.5, -BASE_H / 2 + 6),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.55,
+		BorderSizePixel = 0,
+		ZIndex = 0,
+	}, gui)
+	corner(shadow, 14)
+
 	local win = new("Frame", {
 		Name = "Window",
 		Size = UDim2.fromOffset(BASE_W, BASE_H),
@@ -113,10 +124,12 @@
 		local scale = math.clamp(math.min((vp.X - pad * 2) / BASE_W, (vp.Y - pad * 2) / BASE_H), 0.6, 1)
 		uiScale.Scale = scale
 		win.Size = UDim2.fromOffset(BASE_W * scale, BASE_H * scale)
+		shadow.Size = win.Size
 		local cur = win.Position
 		win.Position = UDim2.fromOffset(
 			math.clamp(cur.X.Offset, pad, math.max(pad, vp.X - win.Size.X.Offset - pad)),
 			math.clamp(cur.Y.Offset, pad, math.max(pad, vp.Y - win.Size.Y.Offset - pad)))
+		shadow.Position = UDim2.fromOffset(win.Position.X.Offset + 6, win.Position.Y.Offset + 6)
 		return scale
 	end
 	fitPanel()
@@ -192,6 +205,7 @@
 		local d = input.Position - dragStart
 		local vp = viewport()
 		local pad = 14
+		shadow.Position = UDim2.fromOffset(win.Position.X.Offset + 6, win.Position.Y.Offset + 6)
 		local nx = math.clamp(dragOrigin.X.Offset + d.X, pad, math.max(pad, vp.X - win.Size.X.Offset - pad))
 		local ny = math.clamp(dragOrigin.Y.Offset + d.Y, pad, math.max(pad, vp.Y - win.Size.Y.Offset - pad))
 		win.Position = UDim2.fromOffset(nx, ny)
@@ -264,6 +278,7 @@
 			Visible = false,
 		}, pageHost)
 		new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, p)
+		new("UIPadding", { PaddingRight = UDim.new(0, 6), PaddingBottom = UDim.new(0, 8) }, p)
 		pages[name] = p
 		return p
 	end
@@ -310,6 +325,21 @@
 			TextSize = 12,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 		}, row)
+	end
+
+	-- small caption that groups rows, so the tabs read as sections not a list
+	local function section(page, order, text)
+		local l = new("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 14),
+			BackgroundTransparency = 1,
+			Text = string.upper(text),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Theme.dim,
+			Font = Enum.Font.GothamBold,
+			TextSize = 9,
+			LayoutOrder = order,
+		}, page)
+		return l
 	end
 
 	-- action row: tap to fire
@@ -498,6 +528,14 @@
 	local so = 0
 	local function sOrder() so += 1 return so end
 
+	local ghostToggle = toggle(selfPage, sOrder(), "GHOST - invisible + invincible", function(on)
+		local ok, err = SelfTools.ghost(on)
+		if not ok and err then out(err) end
+		if ok then out(on and "ghost on" or "ghost off") end
+	end, false)
+
+	section(selfPage, sOrder(), "protection")
+
 	local godToggle = toggle(selfPage, sOrder(), "god mode (health pinned)", function(on)
 		SelfTools.godMode(on)
 		if not on then SelfTools.restoreAll() SelfTools.godMode(false) end
@@ -509,6 +547,8 @@
 		local ok, err = SelfTools.fly(on, ctx.flySpeed or 60)
 		if not ok and err then out(err) end
 	end, false)
+
+	section(selfPage, sOrder(), "movement")
 
 	stepper(selfPage, sOrder(), "fly speed", { 30, 60, 100, 160, 240 }, function(v) ctx.flySpeed = v end, 2)
 	stepper(selfPage, sOrder(), "walk speed", { 16, 30, 50, 80, 120, 200 }, function(v) SelfTools.setSpeed(v) end, 1)
@@ -629,12 +669,23 @@
 		local p = pick() if p then Targets.teleportTo(p) end
 	end)
 
+	section(plPage, 2, "attack")
+
+	action(plPage, 3, "weld fling (weld + drag, strongest)", function()
+		local p = pick()
+		if not p then out("no player selected") return end
+		local ok, err = Targets.flingWeld(p, 2.5)
+		if not ok and err then out(err) else out("weld flinging " .. p.Name) end
+	end)
+
 	action(plPage, 4, "fling selected (self-body)", function()
 		local p = pick()
 		if not p then return end
 		local ok, err = Targets.fling(p, 3, "self")
 		if not ok and err then out(err) else out("flinging " .. p.Name) end
 	end)
+
+	section(plPage, 10, "movement")
 
 	action(plPage, 5, "fling selected (force velocity)", function()
 		local p = pick()

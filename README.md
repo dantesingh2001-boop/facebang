@@ -30,8 +30,8 @@ phones and small windows, so it works on PC and mobile without two layouts.
 | tab | what is in it |
 | --- | --- |
 | **Aim** | bang nearest, loop / auto-retarget, stop + restore, power, vertical offset, release-from-seat, **bang style** (hybrid / velocity / cframe) |
-| **Self** | god mode, noclip, fly + fly speed, walk speed, jump power, anti-void + floor Y, invisible, anti-AFK, freeze my character, restore everything |
-| **Players** | pick a player, then bang / teleport to / fling (self-body or force) / freeze (local view) / thaw / follow / spectate, plus freeze everyone in view (capped at 12) |
+| **Self** | **GHOST (invisible + invincible)**, god mode, noclip, fly + fly speed, walk speed, jump power, anti-void + floor Y, invisible, anti-AFK, freeze my character, restore everything |
+| **Players** | pick a player, then bang / teleport to / **weld fling** / fling (self-body or force) / freeze (local view) / thaw / follow / spectate, plus freeze everyone in view (capped at 12) |
 | **Server** | time of day, no fog, copy job id, rejoin, server hop, unload |
 
 Rows that reset or unload your state need a second tap ("tap again to
@@ -115,14 +115,15 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-48 checks: script loads, registers itself, the hot path runs clean, the root
+61 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
 mode, local freeze) and the target actions (teleport, freeze, thaw, freeze-all
 with a radius check), the engine/UI loop-flag resync, fling driving our own
 body while leaving the victim untouched, god-mode re-pinning, and velocity-mode
-not teleporting. All pass.
+not teleporting, weld creation/teardown with mass restored, and ghost
+enabling/disabling touch, transparency, forcefield and health pinning. All pass.
 
 ## Changelog
 
@@ -154,3 +155,26 @@ whether you are alone or simply have no valid target.
 Honest limits that no style fixes: server-authoritative health means a client
 cannot stop a server kill, and a game that anchors characters or disables
 player-vs-player collision cannot be banged by any client script.
+
+**v1.3.0** — weld fling, a real ghost/invincible mode, cleaner UI.
+
+- **Weld fling** (`Targets.flingWeld`). The technique used by the popular
+  "fling based on welding" scripts: `WeldConstraint` from your root to theirs so
+  the target is dragged by *your* owned assembly, then launch + spin the welded
+  pair. Two details the naive version misses: their parts are set `Massless`
+  first (otherwise the shared assembly is too heavy to move), and the weld is
+  always torn down afterwards, since a root-to-root weld also shares damage.
+- **GHOST — invisible + invincible.** Not just `MaxHealth`: every part gets
+  `CanTouch = false` (stops local touch-based damage), a hidden `ForceField` is
+  attached (blocks damage replication while it lives), everything is set
+  transparent, health is still pinned, and `DescendantAdded` re-applies it to
+  tools or accessories you pick up later. The root stays collidable so you do
+  not fall through the floor.
+- **UI**: grouped sections, soft drop shadow, page padding, and a single
+  forward-declared reference to the bang label instead of tree searches.
+
+Both of these come from published scripts found while researching; the
+implementation and the failure handling are this project's own. The limits that
+remain are the engine's: server-authoritative `Health` and `Kick`, anchored
+characters, and games with player-vs-player collision off cannot be beaten from
+a client.
