@@ -793,13 +793,32 @@
 	stepper(selfPage, sOrder(), "walk speed", { 16, 30, 50, 80, 120, 200 }, function(v) SelfTools.setSpeed(v) end, 1)
 	stepper(selfPage, sOrder(), "jump power", { 50, 75, 100, 150, 250 }, function(v) SelfTools.setJump(v) end, 1)
 
+	toggle(selfPage, sOrder(), "infinite jump", function(on) SelfTools.infiniteJump(on) end, false)
+
+	section(selfPage, sOrder(), "teleport")
+
+	action(selfPage, sOrder(), "teleport to cursor", function()
+		local ok, res = SelfTools.teleportToCursor(3)
+		out(ok and "teleported" or tostring(res))
+	end)
+
+	action(selfPage, sOrder(), "save position", function()
+		local ok, err = SelfTools.savePosition()
+		out(ok and "position saved" or tostring(err))
+	end)
+
+	action(selfPage, sOrder(), "load position", function()
+		local ok, err = SelfTools.loadPosition()
+		out(ok and "loaded" or tostring(err))
+	end)
+
 	local voidToggle = toggle(selfPage, sOrder(), "anti void", function(on)
 		if on then SelfTools.startAntiVoid(Config.VoidFloor) else SelfTools.stopAntiVoid() end
 	end, false)
 
 	stepper(selfPage, sOrder(), "void floor Y", { -40, -80, -150, -300 }, function(v) Config.VoidFloor = v end, 2)
 
-	local invisToggle = toggle(selfPage, sOrder(), "invisible", function(on) SelfTools.invisible(on) end, false)
+	local invisToggle = toggle(selfPage, sOrder(), "invisible (your view only)", function(on) SelfTools.invisible(on) end, false)
 
 	toggle(selfPage, sOrder(), "anti afk", function(on) SelfTools.antiAfk(on) end, false)
 
@@ -990,6 +1009,11 @@
 		end)
 	end, false)
 
+	action(svPage, svOrder(), "perf: fps / ping / parts", function()
+		local p = SelfTools.perf()
+		out(string.format("%d fps · %d ms · %d parts", p.fps, p.ping, p.parts))
+	end)
+
 	action(svPage, svOrder(), "copy job id", function()
 		local id = game.JobId
 		if CAP.clipboard then
@@ -1160,6 +1184,7 @@
 		Stop = function() Engine.stop() end,
 	}
 
+	SelfTools.startPerf()
 	showTab("Aim")
 	refreshPlayers()
 	UI.state(false)

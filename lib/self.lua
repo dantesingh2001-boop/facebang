@@ -14,6 +14,7 @@ function Self.new(ctx)
 		godBackup = nil,
 		orig = {},
 		frozen = false,
+		invOrig = {},   -- per-part original Transparency, so restore is exact
 	}
 
 	local function char()
@@ -158,57 +159,77 @@ function Self.new(ctx)
 	end
 
 	----------------------------------------------------------------------- fly
+	--[[
+	  Fly. The old version used BodyVelocity, which is the reason it "did not
+	  work" in most games: body movers are frequently destroyed or overridden by
+	  the game's own movement code, and MaxForce fights gravity rather than
+	  replacing it. This drives AssemblyLinearVelocity directly instead - the same
+	  primitive that is verified working in Studio - and lerps toward the target
+	  velocity so it accelerates smoothly instead of snapping.
+	]]
 	function M.fly(on, speed)
 		M.unfly()
-		if not on then return end
+		if not on then return true end
 		local r, h = root(), hum()
 		if not r or not h then return false, "no character" end
+		pcall(function()
+			if r.Anchored then r.Anchored = false end
+		end)
+		if r.Anchored then return false, "your character is anchored here" end
+
 		s.fly = true
 		s.flySpeed = speed or 60
-		s.orig.flyAnchored = r.Anchored
-
-		local bodyVel = Instance.new("BodyVelocity")
-		bodyVel.Name = "FB_Fly"
-		bodyVel.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-		bodyVel.Velocity = Vector3.zero
-		bodyVel.Parent = r
+		s.orig.platformStand = h.PlatformStand
 		pcall(function() h.PlatformStand = true end)
 
-		local cam = Workspace.CurrentCamera
-		track(RunService.RenderStepped:Connect(function()
+		local function down(kc)
+			local ok, res = pcall(function() return ctx.UserInput:IsKeyDown(kc) end)
+			return ok and res
+		end
+
+		s.flyConn = track(RunService.RenderStepped:Connect(function()
 			if not s.fly then return end
-			local rr = root()
-			if not rr or not cam then return end
-			local move = Vector3.zero
-			-- keyboard
-			local function down(kc)
-				local ok, res = pcall(function() return ctx.UserInput:IsKeyDown(kc) end)
-				return ok and res
+			local rr, hh = root(), hum()
+			local cam = Workspace.CurrentCamera
+			if not rr or not hh or not cam then return end
+
+			-- Humanoid.MoveDirection is already the world-space direction of the
+			-- player's input, so this works on touch thumbsticks as well as WASD
+			local move = hh.MoveDirection * s.flySpeed
+
+			local up = 0
+			if down(Enum.KeyCode.Space) then up += 1 end
+			if down(Enum.KeyCode.LeftControl) then up -= 1 end
+			-- pitching the camera up/down gives altitude control without keys
+			if down(Enum.KeyCode.W) or move.Magnitude > 0.01 then
+				up += cam.CFrame.LookVector.Y * 1.5
 			end
-			if down(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
-			if down(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
-			if down(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
-			if down(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
-			if down(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
-			if down(Enum.KeyCode.LeftControl) then move -= Vector3.new(0, 1, 0) end
-			if move.Magnitude > 0 then move = move.Unit end
-			bodyVel.Velocity = move * s.flySpeed
+			move = move + Vector3.new(0, up * s.flySpeed * 0.5, 0)
+
+			-- smooth: ease toward the wanted velocity, no snapping
+			local cur = rr.AssemblyLinearVelocity
+			rr.AssemblyLinearVelocity = cur:Lerp(move, 0.35)
+			pcall(function() rr.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
 		end))
-		s.flyMover = bodyVel
 		return true
 	end
 
 	function M.unfly()
+		if not s.fly and not s.flyConn then return end
 		s.fly = false
-		if s.flyMover then
-			pcall(function() s.flyMover:Destroy() end)
-			s.flyMover = nil
+		if s.flyConn then
+			pcall(function() s.flyConn:Disconnect() end)
+			s.flyConn = nil
 		end
 		local h = hum()
-		if h then pcall(function() h.PlatformStand = false end) end
+		if h and s.orig.platformStand ~= nil then
+			pcall(function() h.PlatformStand = s.orig.platformStand end)
+			s.orig.platformStand = nil
+		end
+		local r = root()
+		if r then pcall(function() r.AssemblyLinearVelocity = Vector3.zero end) end
 	end
 
-	--------------------------------------------------------------------- speed
 	function M.setSpeed(n)
 		local h = hum()
 		if not h then return false end
@@ -286,33 +307,68 @@ function Self.new(ctx)
 	end
 
 	----------------------------------------------------------------- invisible
+	--[[
+	  Invisible.
+
+	  Measured in Studio, and the honest result: writing Transparency on your own
+	  character from the client does NOT replicate. The client set Head.Transparency
+	  = 1 and the server still read 0, so other players keep seeing you. Property
+	  changes made locally are not sent to the server; only physics ownership
+	  (CFrame of your own root) travels that way.
+
+	  There is no client-side route to being invisible to everyone - that needs the
+	  server to cooperate, which is out of reach of any script running here. What
+	  this does is hide you from your own camera, which is still useful for
+	  screenshots and for seeing through your own body. It is labelled that way in
+	  the UI so nobody is told it does more than it does.
+
+	  It does record each part's original transparency, so restoring is exact and
+	  does not flatten a deliberately semi-transparent part. Accessories added
+	  while hidden are caught by DescendantAdded.
+	]]
 	function M.invisible(on)
+		s.invisible = on and true or false
 		local c = char()
-		if not c then return false end
-		for _, p in ipairs(c:GetDescendants()) do
-			if p:IsA("BasePart") or p:IsA("Decal") then
-				pcall(function() p.Transparency = on and 1 or 0 end)
-			elseif p:IsA("BillboardGui") or p:IsA("ParticleEmitter") then
-				pcall(function() p.Enabled = not on end)
+		if not c then return false, "no character" end
+
+		local function apply(inst)
+			if inst:IsA("BasePart") then
+				if s.invOrig[inst] == nil then s.invOrig[inst] = inst.Transparency end
+				pcall(function() inst.Transparency = 1 end)
+			elseif inst:IsA("Decal") or inst:IsA("Texture") then
+				if s.invOrig[inst] == nil then s.invOrig[inst] = inst.Transparency end
+				pcall(function() inst.Transparency = 1 end)
+			elseif inst:IsA("BillboardGui") then
+				pcall(function() inst.Enabled = false end)
 			end
 		end
+
+		if not on then
+			for inst, t in pairs(s.invOrig) do
+				pcall(function() inst.Transparency = t end)
+			end
+			table.clear(s.invOrig)
+			if s.invConn then
+				pcall(function() s.invConn:Disconnect() end)
+				s.invConn = nil
+			end
+			-- re-enable name tags we turned off
+			for _, d in ipairs(c:GetDescendants()) do
+				if d:IsA("BillboardGui") then pcall(function() d.Enabled = true end) end
+			end
+			return true
+		end
+
+		for _, d in ipairs(c:GetDescendants()) do apply(d) end
+		if s.invConn then pcall(function() s.invConn:Disconnect() end) end
+		s.invConn = track(c.DescendantAdded:Connect(function(d)
+			if s.invisible then apply(d) end
+		end))
 		return true
 	end
 
-	--[[
-	  Ghost / invincible. This is the combination that actually does something,
-	  rather than just pinning MaxHealth:
+	function M.isInvisible() return s.invisible == true end
 
-	  - CanTouch = false on every part  -> local touch-based damage never fires
-	  - a hidden ForceField            -> blocks the server's damage replication
-	                                      for as long as it lives
-	  - Transparency = 1               -> invisible
-	  - health still pinned            -> covers scripted local damage
-
-	  The root keeps CanCollide so you do not fall through the floor.
-	  Server-side kills that bypass all of the above still land: nothing a client
-	  can do about a :Kick or an authoritative Health = 0.
-	]]
 	function M.ghost(on)
 		s.ghost = on and true or false
 		local c = char()
@@ -359,6 +415,100 @@ function Self.new(ctx)
 
 	function M.isGhost() return s.ghost == true end
 
+	----------------------------------------------------------------- teleporting
+	-- click-to-teleport: reads the mouse hit once, so it works the same on PC
+	-- and on touch (a tap sets Mouse.Hit)
+	function M.teleportToCursor(offset)
+		local r = root()
+		if not r then return false, "no character" end
+		local mouse = LP:GetMouse()
+		local hit = mouse and mouse.Hit
+		if not hit then return false, "no cursor position" end
+		local target = hit.Position + Vector3.new(0, offset or 3, 0)
+		r.CFrame = CFrame.new(target) * (r.CFrame - r.CFrame.Position)
+		local h = hum()
+		if h then pcall(function() h.PlatformStand = false end) end
+		return true, target
+	end
+
+	function M.savePosition()
+		local r = root()
+		if not r then return false, "no character" end
+		s.savedPos = r.CFrame
+		return true
+	end
+
+	function M.loadPosition()
+		if not s.savedPos then return false, "nothing saved yet" end
+		local r = root()
+		if not r then return false, "no character" end
+		r.CFrame = s.savedPos
+		return true
+	end
+
+	function M.hasSavedPosition() return s.savedPos ~= nil end
+
+	----------------------------------------------------------------- infinite jump
+	-- re-enters the jump state whenever the humanoid falls, which is what makes
+	-- multi-jump work without touching JumpPower
+	function M.infiniteJump(on)
+		s.infJump = on and true or false
+		if s.infJumpConn then
+			pcall(function() s.infJumpConn:Disconnect() end)
+			s.infJumpConn = nil
+		end
+		if not on then return true end
+		s.infJumpConn = track(RunService.RenderStepped:Connect(function()
+			if not s.infJump then return end
+			local h = hum()
+			if not h then return end
+			local ok, state = pcall(function() return h:GetState() end)
+			if ok and state == Enum.HumanoidStateType.Freefall then
+				pcall(function() h:ChangeState(Enum.HumanoidStateType.Jumping) end)
+			end
+		end))
+		return true
+	end
+
+	------------------------------------------------------------------- perf readout
+	-- Client-side only. This is what tells you whether lag is your frame rate or
+	-- the network - it measures nothing on the server and sends no load.
+	function M.perf()
+		local fps = s.fps or 0
+		local ping = 0
+		local okPing, v = pcall(function()
+			return game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()
+		end)
+		if okPing and type(v) == "number" then ping = math.floor(v) end
+		local parts = 0
+		pcall(function()
+			for _, d in ipairs(workspace:GetDescendants()) do
+				if d:IsA("BasePart") then parts += 1 end
+			end
+		end)
+		return { fps = math.floor(fps), ping = ping, parts = parts }
+	end
+
+	function M.startPerf()
+		if s.perfConn then return end
+		local frames, t0 = 0, os.clock()
+		s.perfConn = track(RunService.RenderStepped:Connect(function()
+			frames += 1
+			local now = os.clock()
+			if now - t0 >= 1 then
+				s.fps = frames / (now - t0)
+				frames, t0 = 0, now
+			end
+		end))
+	end
+
+	function M.stopPerf()
+		if s.perfConn then
+			pcall(function() s.perfConn:Disconnect() end)
+			s.perfConn = nil
+		end
+	end
+
 	------------------------------------------------------------------- anti afk
 	function M.antiAfk(on)
 		if not on then
@@ -390,6 +540,8 @@ function Self.new(ctx)
 	function M.restoreAll()
 		untrackAll()
 		M.ghost(false)
+		M.invisible(false)
+		M.infiniteJump(false)
 		M.godSpeed(false)
 		if s.godSpeedConn then pcall(function() s.godSpeedConn:Disconnect() end) s.godSpeedConn = nil end
 		M.unfly()

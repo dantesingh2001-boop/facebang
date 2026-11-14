@@ -54,6 +54,12 @@ function V3.new(x, y, z)
 					local av, bv = rawget(a, "_v"), rawget(b, "_v")
 					return av.x * bv.x + av.y * bv.y + av.z * bv.z
 				end
+			elseif k == "Lerp" then
+				return function(a, b, t)
+					local av, bv = rawget(a, "_v"), rawget(b, "_v")
+					return V3.new(av.x + (bv.x - av.x) * t, av.y + (bv.y - av.y) * t,
+						av.z + (bv.z - av.z) * t)
+				end
 			elseif k == "Cross" then
 				return function(a, b)
 					local av, bv = rawget(a, "_v"), rawget(b, "_v")
@@ -85,12 +91,25 @@ CFrame = {}
 CFrame.__index = CFrame
 function CFrame.new(x, y, z)
 	local pos = (type(x) == "table") and x or V3.new(x or 0, y or 0, z or 0)
-	return setmetatable({ Position = pos }, CFrame)
+	return setmetatable({
+		Position = pos,
+		LookVector = V3.new(0, 0, -1),
+		RightVector = V3.new(1, 0, 0),
+		UpVector = V3.new(0, 1, 0),
+	}, CFrame)
 end
 CFrame.__mul = function(a, b)
 	-- offsets only in this mock: compose positions
 	return CFrame.new(a.Position + (b.Position or V3.new(0, 0, 0)))
 end
+CFrame.__sub = function(a, b)
+	if typeof(b) ~= "Vector3" and not (type(b) == "table" and rawget(b, "_v")) then
+		error("CFrame - " .. tostring(b))
+	end
+	local bx = rawget(b, "_v") or b
+	return CFrame.new(a.Position - V3.new(bx.x, bx.y, bx.z))
+end
+
 function CFrame:__tostring() return "CFrame" .. tostring(self.Position) end
 
 Vector2 = {
@@ -115,18 +134,39 @@ Enum = setmetatable({}, {
 	end,
 })
 
+Enum.HumanoidStateType = {
+	Freefall = { Name = "Freefall" },
+	Jumping = { Name = "Jumping" },
+	Running = { Name = "Running" },
+	Landed = { Name = "Landed" },
+}
+
 -- instances ---------------------------------------------------------------
 local function signal()
 	local s = { fns = {}, connected = 0 }
 	function s:Connect(fn)
 		self.connected += 1
-		self.fns[#self.fns + 1] = fn
-		return { Disconnect = function() end }
+		local entry = { fn = fn }
+		self.fns[#self.fns + 1] = entry
+		-- a real Disconnect stops the callback; a no-op here would hide every
+		-- cleanup bug in the script (and did: leftover loops kept running)
+		return {
+			Disconnect = function()
+				for i, e in ipairs(self.fns) do
+					if e == entry then table.remove(self.fns, i) break end
+				end
+				entry.fn = nil
+			end,
+		}
 	end
 	function s:Fire(...)
-		for _, fn in ipairs(self.fns) do
-			local ok, err = pcall(fn, ...)
-			if not ok then rec(err) end
+		local snapshot = {}
+		for _, e in ipairs(self.fns) do snapshot[#snapshot + 1] = e end
+		for _, e in ipairs(snapshot) do
+			if e.fn then
+				local ok, err = pcall(e.fn, ...)
+				if not ok then rec(err) end
+			end
 		end
 	end
 	return s
@@ -158,6 +198,14 @@ Inst.__newindex = function(t, k, v)
 		local found = false
 		for _, c in ipairs(v.Children) do if c == t then found = true break end end
 		if not found then table.insert(v.Children, t) end
+		-- the real engine fires these on every reparent; the invisibility code
+		-- relies on DescendantAdded to hide accessories added later
+		if v.ChildAdded then pcall(function() v.ChildAdded:Fire(t) end) end
+		local node = v
+		while node do
+			if node.DescendantAdded then pcall(function() node.DescendantAdded:Fire(t) end) end
+			node = rawget(node, "_p")
+		end
 	end
 end
 
@@ -247,6 +295,8 @@ Tween.Create = function(_, obj, _info, goal)
 end
 local SGui = mkService("StarterGui")
 local WS = mkService("Workspace")
+workspace = WS
+Workspace = WS -- engine globals the script relies on
 GAME_SERVICES = svc
 game = { GetService = function(_, n) return GAME_SERVICES[n] end, FindService = function(_, n) return GAME_SERVICES[n] end }
 Players.PlayerAdded = signal()
@@ -266,6 +316,21 @@ WS.CurrentCamera = { CameraSubject = nil, ViewportSize = V3.new(1280, 720, 0),
 local lp = newInst("Player") lp.Name = "me" lp.UserId = 1 lp.CharacterAdded = signal()
 Players.LocalPlayer = lp
 local pgui = newInst("PlayerGui") pgui.Parent = lp lp.Children = { pgui }
+Enum.HumanoidStateType = {
+	Freefall = { name = "Freefall" },
+	Jumping = { name = "Jumping" },
+	Running = { name = "Running" },
+	Landed = { name = "Landed" },
+}
+
+local MOUSE = { Hit = CFrame.new(V3.new(10, 5, 10)) }
+lp.GetMouse = function() return MOUSE end
+
+local STATS_VALUE = { GetValue = function() return 42 end }
+local STATS = mkService("Stats")
+STATS.Network = { ServerStatsItem = setmetatable({}, {
+	__index = function() return STATS_VALUE end,
+}) }
 
 local function mkChar(plr, pos)
 	local model = newInst("Model") model.Name = plr.Name model.Parent = plr
@@ -279,7 +344,10 @@ local function mkChar(plr, pos)
 	hum.MaxHealth = 100
 	hum.PlatformStand = false
 	hum.HealthChanged = signal()
-	hum.ChangeState = function() end
+	hum.MoveDirection = V3.new(0, 0, 0)
+	hum._state = nil
+	hum.GetState = function(self) return self._state end
+	hum.ChangeState = function(self, st) self._state = st end
 	model.Children = { head, hrp, hum }
 	plr.Character = model
 	return model

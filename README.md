@@ -115,7 +115,7 @@ cat test/mock.lua facebang.lua test/driver.lua > /tmp/smoke.lua
 luau /tmp/smoke.lua
 ```
 
-91 checks: script loads, registers itself, the hot path runs clean, the root
+109 checks: script loads, registers itself, the hot path runs clean, the root
 ends up on the victim's head, an impulse is written, hit detection fires, stop
 restores position / state / collisions, dead targets are refused, and unload
 destroys the GUI, plus the self tools (speed, jump, noclip, anti-void, god
@@ -291,3 +291,41 @@ A test-ordering bug in the harness was masking all of this: `Targets.fling` left
 a RenderStepped connection alive, which overwrote the bang's velocity every
 frame and pinned readings at 907. Cleaned up, and the tuning is now pinned in
 `test/tuning.lua` so a refactor cannot quietly slide back into a dead zone.
+
+**v1.8.0** — fly rebuilt, invisibility corrected, five more tools.
+
+**Fly was broken because of BodyVelocity.** Body movers get destroyed or
+overridden by a game's own movement code, and MaxForce fights gravity instead of
+replacing it. Fly now drives `AssemblyLinearVelocity` directly and lerps toward
+the wanted vector, so it eases in rather than snapping. It reads
+`Humanoid.MoveDirection`, which is why it now works on touch thumbsticks as well
+as WASD, and camera pitch gives altitude control. Verified in Studio: **13.5
+studs up, 39.9 studs across in 0.6s, health untouched.**
+
+**Invisibility does not work the way I said it did, and I have to correct it.**
+I told you character transparency replicates to other players. I tested it: the
+client set `Head.Transparency = 1` and the server still read **0**. Property
+writes made on a client are not sent to the server — only physics ownership of
+your own root travels that way. So "invisible to everyone" is not reachable from
+a client script at all; it needs the server to cooperate. The toggle now says
+**"invisible (your view only)"** so it stops claiming something it cannot do.
+What it does do properly is restore the exact original transparency per part and
+catch accessories equipped while hidden (via `DescendantAdded`), both of which it
+did not do before.
+
+New in this version:
+- **infinite jump** — re-enters the jump state while falling
+- **teleport to cursor** — works on PC and on touch (a tap sets the mouse hit)
+- **save / load position**
+- **perf readout** — fps, ping, part count, client-side only. This is the useful
+  half of lag testing: it tells you whether a hitch is your frame rate or the
+  network, and it measures nothing on the server and sends no load.
+
+Two harness fixes worth recording, because both were hiding real behaviour:
+- the mock's `Disconnect` was a **no-op**, so every leftover loop kept running
+  after being "disconnected". That masked cleanup bugs and produced the phantom
+  907 velocity readings. It now removes the callback for real.
+- a freeze test held a stale part reference from a character that had been
+  rebuilt five times, so it was writing velocity to a destroyed part.
+
+109 checks: 84 script, 7 bang tuning, 18 fly/invisibility/movement/perf.

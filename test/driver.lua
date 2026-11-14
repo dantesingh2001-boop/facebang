@@ -389,12 +389,18 @@ API.Config.FreezeMax = 8
 -- 28. a freeze must not fight a player who is genuinely moving
 Targets.freeze(victim)
 GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
-vRoot.AssemblyLinearVelocity = V3.new(0, 0, 90)
+-- deliberately re-read the root: the victim's character has been rebuilt since
+-- vRoot was captured, so vRoot points at a destroyed part
+local liveRoot = victim.Character:FindFirstChild("HumanoidRootPart")
+liveRoot.AssemblyLinearVelocity = V3.new(0, 0, 90)
 GAME_SERVICES.RunService.RenderStepped:Fire(1/60)
 Report("freeze drops once the target really moves", Targets.isFrozen(victim) == false)
 
 -- 29. the bang must actually be able to reach them: at 8 studs it must ramp
 --     toward the target, and only re-stage when genuinely inside
+Targets.unweld()
+Targets.unfling()
+Targets.thawAll()
 API.Config.BangMode = "fling"
 victim.Character = mkChar(victim, V3.new(0, 0, -8))
 myRoot.CFrame = CFrame.new(V3.new(0, 0, 0))
@@ -403,6 +409,7 @@ API.Bang(victim)
 for _ = 1, 2 do GAME_SERVICES.RunService.RenderStepped:Fire(1/60) end
 local toThem = victim.Character:FindFirstChild("Head").CFrame.Position - myRoot.CFrame.Position
 local closing = myRoot.AssemblyLinearVelocity
+
 Report("bang ramps toward a target 8 studs away",
 	closing.Magnitude > 300 and closing.Unit:Dot(toThem.Unit) > 0.9,
 	("|v|=%.0f dot=%.2f"):format(closing.Magnitude, closing.Unit:Dot(toThem.Unit)))
